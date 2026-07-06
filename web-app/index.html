@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>EcoVitality</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="EcoVitality">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #4CAF50;
+            --secondary: #03A9F4;
+            --tertiary: #FBC02D;
+            --error: #F44336;
+            --background: #000000;
+            --surface: #121212;
+            --on-surface: #FFFFFF;
+            --on-surface-variant: rgba(255, 255, 255, 0.7);
+        }
+
+        body {
+            margin: 0; padding: 0;
+            background-color: var(--background);
+            color: var(--on-surface);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            display: flex; flex-direction: column; height: 100vh;
+        }
+
+        #login-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--background); z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 30px; text-align: center;
+        }
+
+        .auth-input {
+            width: 100%; padding: 15px; margin-bottom: 15px;
+            background: #1A1A1A; border: 1px solid #333; border-radius: 12px;
+            color: white; font-size: 16px;
+        }
+
+        .btn-auth {
+            width: 100%; padding: 15px; background: var(--primary);
+            color: white; border: none; border-radius: 12px;
+            font-weight: bold; font-size: 16px; cursor: pointer;
+        }
+
+        .content { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 90px; display: none; }
+        h1 { font-size: 32px; font-weight: 800; color: var(--primary); margin-top: 20px; margin-bottom: 20px; }
+        h2 { font-size: 20px; font-weight: bold; margin-top: 30px; margin-bottom: 15px; }
+
+        .bottom-nav {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            height: 70px; background: var(--surface);
+            display: none; justify-content: space-around; align-items: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: env(safe-area-inset-bottom); z-index: 1000;
+        }
+
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--on-surface-variant); text-decoration: none; font-size: 10px; }
+        .nav-item.active { color: var(--primary); }
+        .nav-item i { font-size: 20px; margin-bottom: 4px; }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        .rings-container {
+            position: relative; width: 240px; height: 240px;
+            margin: 0 auto 30px auto; display: flex; align-items: center; justify-content: center;
+        }
+        svg.vitality-rings { transform: rotate(-90deg); }
+        circle { fill: none; stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease; }
+        .ring-bg { opacity: 0.1; }
+
+        .center-vitality { position: absolute; text-align: center; }
+        .center-vitality i { font-size: 24px; color: var(--primary); }
+
+        .grid-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .metric-card {
+            padding: 12px; border-radius: 16px; text-align: center;
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .grid-3x3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .breakdown-item {
+            aspect-ratio: 0.85; background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .breakdown-item i { font-size: 20px; margin-bottom: 6px; }
+        .breakdown-item .mode-name { font-size: 11px; font-weight: bold; }
+        .breakdown-item .mode-dist { font-size: 10px; opacity: 0.7; }
+
+        .reward-card { background: var(--surface); padding: 15px; border-radius: 15px; margin-bottom: 10px; }
+        .progress-bar { height: 6px; background: #222; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <div id="login-overlay">
+        <i class="fas fa-leaf" style="font-size: 60px; color: var(--primary); margin-bottom: 20px;"></i>
+        <h1>EcoVitality</h1>
+        <p style="opacity: 0.7; margin-bottom: 30px;">Login to sync your data</p>
+        <input type="email" id="email" class="auth-input" placeholder="Email Address">
+        <input type="password" id="password" class="auth-input" placeholder="Password">
+        <button class="btn-auth" id="login-btn">Login / Sign Up</button>
+        <p id="auth-error" style="color: var(--error); font-size: 12px; margin-top: 10px;"></p>
+    </div>
+
+    <div class="content" id="main-content">
+        <div id="dashboard" class="screen active">
+            <h1>Overview</h1>
+            <div class="rings-container">
+                <svg class="vitality-rings" width="240" height="240">
+                    <circle class="ring-bg" cx="120" cy="120" r="105" stroke="#FBC02D"></circle>
+                    <circle id="ring-xp" cx="120" cy="120" r="105" stroke="#FBC02D" stroke-dasharray="660" stroke-dashoffset="660"></circle>
+                    <circle class="ring-bg" cx="120" cy="120" r="85" stroke="#03A9F4"></circle>
+                    <circle id="ring-eco" cx="120" cy="120" r="85" stroke="#03A9F4" stroke-dasharray="534" stroke-dashoffset="534"></circle>
+                    <circle class="ring-bg" cx="120" cy="120" r="65" stroke="#4CAF50"></circle>
+                    <circle id="ring-saved" cx="120" cy="120" r="65" stroke="#4CAF50" stroke-dasharray="408" stroke-dashoffset="408"></circle>
+                    <circle class="ring-bg" cx="120" cy="120" r="45" stroke="#F44336"></circle>
+                    <circle id="ring-prod" cx="120" cy="120" r="45" stroke="#F44336" stroke-dasharray="282" stroke-dashoffset="282"></circle>
+                </svg>
+                <div class="center-vitality"><i class="fas fa-leaf"></i><span>Vitality</span></div>
+            </div>
+            <div class="grid-2x2">
+                <div class="metric-card"><span class="label">Total XP</span><br><span id="txt-xp" class="value" style="color: #FBC02D;">0</span></div>
+                <div class="metric-card"><span class="label">Eco Score</span><br><span id="txt-eco" class="value" style="color: #03A9F4;">0</span></div>
+                <div class="metric-card"><span class="label">CO2 Saved</span><br><span id="txt-saved" class="value" style="color: #4CAF50;">0.00kg</span></div>
+                <div class="metric-card"><span class="label">Produced</span><br><span id="txt-prod" class="value" style="color: #F44336;">0.00kg</span></div>
+            </div>
+            <h2>Travel Breakdown</h2>
+            <div class="grid-3x3" id="breakdown-grid"></div>
+        </div>
+
+        <div id="rewards" class="screen">
+            <h1>Rewards</h1>
+            <div id="reward-list"></div>
+        </div>
+
+        <div id="profile" class="screen">
+            <h1>My Profile</h1>
+            <div style="text-align:center; margin-top:50px;">
+                <div id="txt-profile-name" style="font-size:24px; font-weight:bold;">...</div>
+                <div id="txt-profile-email" style="font-size:14px; opacity:0.6;">...</div>
+                <button class="btn-auth" style="background: var(--error); margin-top: 40px;" id="logout-btn">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <nav class="bottom-nav" id="bottom-nav">
+        <a href="#" class="nav-item active" onclick="switchTab('dashboard', this)"><i class="fas fa-th-large"></i><span>Dash</span></a>
+        <a href="#" class="nav-item" onclick="switchTab('rewards', this)"><i class="fas fa-gift"></i><span>Rewards</span></a>
+        <a href="#" class="nav-item" onclick="switchTab('profile', this)"><i class="fas fa-user-circle" style="font-size:24px;"></i><span>Profile</span></a>
+    </nav>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhwKX4lmWbrXh-alPzfuZn5QCeuEs7U_g",
+            authDomain: "ecovitality-374d3.firebaseapp.com",
+            projectId: "ecovitality-374d3",
+            storageBucket: "ecovitality-374d3.appspot.com",
+            messagingSenderId: "591202898848",
+            appId: "1:591202898848:web:be4d2f0b6765c913898ac5"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const loginOverlay = document.getElementById('login-overlay');
+        const mainContent = document.getElementById('main-content');
+        const bottomNav = document.getElementById('bottom-nav');
+
+        document.getElementById('login-btn').onclick = async () => {
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('password').value;
+            try {
+                await auth.signInWithEmailAndPassword(email, pass);
+            } catch (e) {
+                try {
+                    await auth.createUserWithEmailAndPassword(email, pass);
+                } catch (err) {
+                    document.getElementById('auth-error').innerText = err.message;
+                }
+            }
+        };
+
+        document.getElementById('logout-btn').onclick = () => auth.signOut();
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                loginOverlay.style.display = 'none';
+                mainContent.style.display = 'block';
+                bottomNav.style.display = 'flex';
+                loadUserData(user.uid, user.email);
+            } else {
+                loginOverlay.style.display = 'flex';
+                mainContent.style.display = 'none';
+                bottomNav.style.display = 'none';
+            }
+        });
+
+        function loadUserData(uid, email) {
+            document.getElementById('txt-profile-email').innerText = email;
+            db.collection('users').doc(uid).onSnapshot(doc => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    calculateAndShow(data);
+                }
+            });
+        }
+
+        const FACTORS = { Car: 0.16691, Bus: 0.10846, Train: 0.03549, Motorbike: 0.11337, Bike: 0, Walk: 0 };
+        const ICONS = { Car: 'car', Motorbike: 'motorcycle', Bus: 'bus', Train: 'subway', Bike: 'bicycle', Walk: 'walking' };
+        const COLORS = { Car: '#F44336', Motorbike: '#9C27B0', Bus: '#03A9F4', Train: '#4CAF50', Bike: '#FF9800', Walk: '#4CAF50' };
+
+        function calculateAndShow(data) {
+            const history = (data.history || []).map(h => {
+                const p = h.split('|');
+                return { date: p[0], type: p[1], dist: parseFloat(p[2]), co2: parseFloat(p[3]) };
+            });
+
+            const today = new Date().toISOString().split('T')[0];
+            const todayTrips = history.filter(t => t.date === today);
+
+            let totalXp = history.reduce((acc, t) => acc + (t.type === 'Bike' || t.type === 'Walk' ? t.dist * 15 : (t.type === 'Bus' || t.type === 'Train' ? t.dist * 5 : 0)), 0);
+            let co2Saved = history.reduce((acc, t) => acc + (t.type === 'Bike' || t.type === 'Walk' ? t.dist * 0.16691 : 0), 0);
+            let co2Prod = history.reduce((acc, t) => acc + (t.type !== 'Bike' && t.type !== 'Walk' ? t.co2 : 0), 0);
+            let ecoScore = 100; // Simplified for web
+
+            document.getElementById('txt-xp').innerText = Math.round(totalXp);
+            document.getElementById('txt-eco').innerText = ecoScore + "/100";
+            document.getElementById('txt-saved').innerText = co2Saved.toFixed(2) + "kg";
+            document.getElementById('txt-prod').innerText = co2Prod.toFixed(2) + "kg";
+            document.getElementById('txt-profile-name').innerText = data.username || "User";
+
+            updateRing('ring-xp', totalXp, 1000, 660);
+            updateRing('ring-eco', ecoScore, 100, 534);
+            updateRing('ring-saved', co2Saved, 10, 408);
+            updateRing('ring-prod', co2Prod, 5, 282);
+
+            const grid = document.getElementById('breakdown-grid');
+            grid.innerHTML = '';
+            ['Car', 'Motorbike', 'Bus', 'Train', 'Bike', 'Walk'].forEach(m => {
+                const dist = todayTrips.filter(t => t.type === m).reduce((acc, t) => acc + t.dist, 0);
+                grid.innerHTML += `<div class="breakdown-item"><i class="fas fa-${ICONS[m]}" style="color:${COLORS[m]}"></i><span class="mode-name">${m}</span><span class="mode-dist">${dist.toFixed(1)} km</span></div>`;
+            });
+
+            const rewardList = document.getElementById('reward-list');
+            rewardList.innerHTML = '';
+            const rewards = [
+                { title: 'Amazon Voucher', desc: '$5 Credit', req: 1000, color: '#FF9900', icon: 'shopping-bag' },
+                { title: 'Fitbit Air', desc: 'Premium Tracker', req: 10000, color: '#00B0B9', icon: 'watch' }
+            ];
+            rewards.forEach(r => {
+                const prog = Math.min(totalXp / r.req, 1) * 100;
+                rewardList.innerHTML += `<div class="reward-card"><div style="display:flex; align-items:center; margin-bottom:10px;"><div style="width:40px; height:40px; background:${r.color}22; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-right:12px;"><i class="fas fa-${r.icon}" style="color:${r.color}"></i></div><div><div style="font-weight:bold;">${r.title}</div><div style="font-size:12px; opacity:0.7;">${r.desc}</div></div></div><div style="display:flex; justify-content:space-between; font-size:10px;"><span>${Math.max(r.req - totalXp, 0)} XP left</span><span>${Math.round(prog)}%</span></div><div class="progress-bar"><div class="progress-fill" style="width:${prog}%; background:${r.color}"></div></div></div>`;
+            });
+        }
+
+        function updateRing(id, val, max, dash) {
+            const offset = dash - (Math.min(val / max, 1) * dash);
+            document.getElementById(id).style.strokeDashoffset = offset;
+        }
+
+        function switchTab(id, el) {
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            el.classList.add('active');
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+    </script>
+</body>
+</html>
