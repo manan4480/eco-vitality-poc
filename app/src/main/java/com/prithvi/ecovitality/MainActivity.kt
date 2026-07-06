@@ -736,7 +736,12 @@ fun ProfileScreen(manager: CarbonManager) {
     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
     var username by remember { mutableStateOf(prefs.getString("currentUsername", "") ?: "") }
     var email by remember { mutableStateOf(prefs.getString("currentUser", "") ?: "") }
-    var profileImageUri by remember { mutableStateOf(prefs.getString("currentImage", null)?.let { Uri.parse(it) }) }
+    var profileImageUri by remember { 
+        mutableStateOf(
+            prefs.getString("currentImage", null)?.let { Uri.parse(it) } ?: 
+            prefs.getString("image_${prefs.getString("currentUser", "")}", null)?.let { Uri.parse(it) }
+        ) 
+    }
     var isEditing by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -755,9 +760,20 @@ fun ProfileScreen(manager: CarbonManager) {
             IconButton(onClick = { if (isEditing) { manager.updateProfile(username, email); Toast.makeText(context, "Profile Updated", Toast.LENGTH_SHORT).show() }; isEditing = !isEditing }) { Icon(if (isEditing) Icons.Default.Save else Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
         }
         Spacer(modifier = Modifier.height(40.dp))
-        Box(modifier = Modifier.size(120.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape).clip(CircleShape).clickable { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, contentAlignment = Alignment.Center) {
-            if (profileImageUri != null) AsyncImage(model = ImageRequest.Builder(context).data(profileImageUri).crossfade(true).build(), contentDescription = "Profile Picture", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            else Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(70.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        Box(modifier = Modifier.size(140.dp).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), CircleShape).clip(CircleShape).clickable { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, contentAlignment = Alignment.Center) {
+            if (profileImageUri != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(profileImageUri)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Profile Picture",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
+            }
         }
         Spacer(modifier = Modifier.height(20.dp))
         if (isEditing) {
@@ -773,10 +789,19 @@ fun ProfileScreen(manager: CarbonManager) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("App Settings", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(15.dp))
-                Text("Theme", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Theme", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     listOf("Light", "Dark", "AMOLED", "System").forEach { theme ->
-                        FilterChip(selected = (prefs.getString("app_theme", "System") == theme), onClick = { prefs.edit().putString("app_theme", theme).apply(); (context as? Activity)?.recreate() }, label = { Text(theme, fontSize = 10.sp) }, modifier = Modifier.weight(1f))
+                        FilterChip(
+                            selected = (prefs.getString("app_theme", "System") == theme),
+                            onClick = { 
+                                prefs.edit().putString("app_theme", theme).apply()
+                                (context as? Activity)?.recreate() 
+                            },
+                            label = { Text(theme, fontSize = 10.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
