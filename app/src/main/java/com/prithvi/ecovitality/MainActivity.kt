@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -296,8 +297,8 @@ fun DashboardScreen(manager: CarbonManager) {
             Triple("Motorbike", Icons.Default.TwoWheeler, Color(0xFF9C27B0)),
             Triple("Bus", Icons.Default.DirectionsBus, MaterialTheme.colorScheme.secondary),
             Triple("Train", Icons.Default.Train, MaterialTheme.colorScheme.primary),
-            Triple("Bike", Icons.Default.DirectionsBike, MaterialTheme.colorScheme.tertiary),
-            Triple("Walking", Icons.Default.DirectionsWalk, Color(0xFF4CAF50))
+            Triple("Bike", Icons.AutoMirrored.Filled.DirectionsBike, MaterialTheme.colorScheme.tertiary),
+            Triple("Walking", Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFF4CAF50))
         )
 
         LazyVerticalGrid(
@@ -392,8 +393,8 @@ fun LiveTripTracker(manager: CarbonManager) {
         Triple("Motorbike", Icons.Default.TwoWheeler, Color(0xFF9C27B0)),
         Triple("Bus", Icons.Default.DirectionsBus, MaterialTheme.colorScheme.secondary),
         Triple("Train", Icons.Default.Train, MaterialTheme.colorScheme.primary),
-        Triple("Bike", Icons.Default.DirectionsBike, MaterialTheme.colorScheme.tertiary),
-        Triple("Walk", Icons.Default.DirectionsWalk, Color(0xFF4CAF50))
+        Triple("Bike", Icons.AutoMirrored.Filled.DirectionsBike, MaterialTheme.colorScheme.tertiary),
+        Triple("Walk", Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFF4CAF50))
     )
 
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
@@ -615,7 +616,7 @@ fun HistoryScreen(manager: CarbonManager) {
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        ActivityMetric("Steps", "${dailyInsight!!.dailySteps}", Icons.Default.DirectionsWalk)
+                        ActivityMetric("Steps", "${dailyInsight!!.dailySteps}", Icons.AutoMirrored.Filled.DirectionsWalk)
                         ActivityMetric("Total XP", "${totalXpForDay}", Icons.Default.Bolt)
                         ActivityMetric("CO2 Saved", "${totalSavedForDay.format(2)} kg", Icons.Default.Nature)
                     }
@@ -633,7 +634,7 @@ fun HistoryScreen(manager: CarbonManager) {
             history.forEach { log ->
                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selectedLog = log; showEditDialog = true }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Motorbike" -> Icons.Default.TwoWheeler; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.Default.DirectionsBike; "Walk" -> Icons.Default.DirectionsWalk; else -> Icons.Default.DirectionsRun }
+                        val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Motorbike" -> Icons.Default.TwoWheeler; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.AutoMirrored.Filled.DirectionsBike; "Walk" -> Icons.AutoMirrored.Filled.DirectionsWalk; else -> Icons.AutoMirrored.Filled.DirectionsRun }
                         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) { 
@@ -840,7 +841,7 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
         Spacer(modifier = Modifier.height(20.dp))
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(16.dp)) {
-                ProfileOption(Icons.Default.Help, "Help & Support")
+                ProfileOption(Icons.AutoMirrored.Filled.Help, "Help & Support")
                 ProfileOption(Icons.Default.Info, "About EcoVitality")
             }
         }
@@ -858,7 +859,7 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
             shape = RoundedCornerShape(16.dp), 
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
         ) { 
-            Icon(Icons.Default.Logout, contentDescription = null)
+            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Logout", fontSize = 16.sp, fontWeight = FontWeight.Bold) 
         }
