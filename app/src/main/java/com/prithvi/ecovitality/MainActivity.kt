@@ -75,8 +75,7 @@ class MainActivity : ComponentActivity() {
                         bottomBar = { BottomNavigationBar(navController) }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                            NavHost(navController = navController, startDestination = "home") {
-                                composable("home") { HomeScreen(manager) }
+                            NavHost(navController = navController, startDestination = "dashboard") {
                                 composable("dashboard") { DashboardScreen(manager) }
                                 composable("track") { TrackScreen(manager) }
                                 composable("history") { HistoryScreen(manager) }
@@ -93,7 +92,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun BottomNavigationBar(navController: NavController) {
     val items = listOf(
-        Triple("home", "Home", Icons.Default.Home),
         Triple("dashboard", "Dashboard", Icons.Default.Dashboard),
         Triple("track", "Track", Icons.Default.AddLocationAlt),
         Triple("history", "History", Icons.Default.History),
@@ -122,103 +120,6 @@ fun BottomNavigationBar(navController: NavController) {
                 )
             )
         }
-    }
-}
-
-@Composable
-fun HomeScreen(manager: CarbonManager) {
-    val context = LocalContext.current
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var dailyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
-    var hasPermissions by remember { mutableStateOf(true) }
-    
-    val days = remember { (0..13).map { LocalDate.now().minusDays(it.toLong()) }.reversed() }
-
-    LaunchedEffect(selectedDate) {
-        hasPermissions = manager.hasAllPermissions()
-        if (hasPermissions) {
-            dailyInsight = manager.getDailyHealthData(selectedDate)
-        }
-    }
-
-    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("Daily Activity", style = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Horizontal Day Picker
-        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState(initial = 1000)), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            days.forEach { date ->
-                DayItem(date, isSelected = date == selectedDate, xp = if(date == LocalDate.now()) dailyInsight?.xp ?: 0 else 0) {
-                    selectedDate = date
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(30.dp))
-
-        if (dailyInsight != null) {
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMM")), fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(150.dp)) {
-                        CircularProgressIndicator(
-                            progress = { (dailyInsight!!.dailySteps / 10000f).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxSize(),
-                            strokeWidth = 12.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surface
-                        )
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(30.dp))
-                            Text("${dailyInsight!!.xp} XP", fontWeight = FontWeight.Bold, fontSize = 24.sp)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(30.dp))
-                    
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        ActivityMetric("Steps", dailyInsight!!.dailySteps.toString(), Icons.Default.DirectionsWalk)
-                        ActivityMetric("Distance", "${dailyInsight!!.dailyDistance.format(2)} km", Icons.Default.Map)
-                        ActivityMetric("Saved", "${dailyInsight!!.totalCarbon.format(2)} kg", Icons.Default.Nature)
-                    }
-                }
-            }
-        } else if (!hasPermissions) {
-            Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                Button(onClick = { /* Handle permissions */ }) {
-                    Text("Sync Health Connect Data")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DayItem(date: LocalDate, isSelected: Boolean, xp: Int, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
-        Text(date.dayOfWeek.name.take(1), fontSize = 12.sp, color = if(isSelected) MaterialTheme.colorScheme.primary else Color.Gray)
-        Spacer(modifier = Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .size(45.dp)
-                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, CircleShape)
-                .clip(CircleShape)
-                .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Favorite, contentDescription = null, tint = if(xp > 0) Color.Red else Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(24.dp))
-        }
-    }
-}
-
-@Composable
-fun ActivityMetric(label: String, value: String, icon: ImageVector) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text(label, fontSize = 12.sp, color = Color.Gray)
     }
 }
 
@@ -263,7 +164,7 @@ fun DashboardScreen(manager: CarbonManager) {
     }
 
     Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
-        Text("Overview", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Text("Dashboard", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
         Spacer(modifier = Modifier.height(20.dp))
 
         LazyVerticalGrid(
@@ -335,12 +236,12 @@ fun TrackScreen(manager: CarbonManager) {
     var motorbikeDist by remember { mutableDoubleStateOf(manager.getManualDistance("Motorbike")) }
 
     Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
-        Text("Start Tracking", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Text("Track Activity", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
         Spacer(modifier = Modifier.height(30.dp))
         LiveTripTracker(manager)
 
         Spacer(modifier = Modifier.height(40.dp))
-        Text("Manual Logging", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Manual Entry", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(15.dp))
         
         LazyVerticalGrid(
@@ -376,7 +277,7 @@ fun LiveTripTracker(manager: CarbonManager) {
 
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text("Live Trip Tracker", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 18.sp)
+            Text("Live Tracking", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 18.sp)
             Spacer(modifier = Modifier.height(15.dp))
             if (isActive) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -440,29 +341,25 @@ fun TransportInput(label: String, value: Double, modifier: Modifier = Modifier, 
 }
 
 @Composable
-fun MetricCard(mode: String, dist: String, co2: String, color: Color) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(12.dp).background(color, CircleShape))
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) { 
-                Text(mode, fontWeight = FontWeight.Bold, fontSize = 16.sp) 
-                Text("Distance: $dist", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) 
-            }
-            Text(co2, fontWeight = FontWeight.Bold, color = color)
-        }
-    }
-}
-
-@Composable
 fun HistoryScreen(manager: CarbonManager) {
     val context = LocalContext.current
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dailyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
     var refreshTrigger by remember { mutableStateOf(0) }
     var history by remember { mutableStateOf(manager.getHistory()) }
     var selectedLog by remember { mutableStateOf<TransportLog?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
+    var hasPermissions by remember { mutableStateOf(true) }
 
-    LaunchedEffect(refreshTrigger) { history = manager.getHistory() }
+    val days = remember { (0..13).map { LocalDate.now().minusDays(it.toLong()) }.reversed() }
+
+    LaunchedEffect(selectedDate, refreshTrigger) {
+        hasPermissions = manager.hasAllPermissions()
+        if (hasPermissions) {
+            dailyInsight = manager.getDailyHealthData(selectedDate)
+        }
+        history = manager.getHistory().filter { it.date == selectedDate.format(DateTimeFormatter.ISO_DATE) }
+    }
 
     if (showEditDialog && selectedLog != null) {
         AlertDialog(
@@ -498,27 +395,111 @@ fun HistoryScreen(manager: CarbonManager) {
         )
     }
 
-    Column(modifier = Modifier.padding(20.dp).fillMaxSize()) {
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Activity History", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(20.dp))
-        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-            if (history.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(60.dp), tint = MaterialTheme.colorScheme.outline); Text("No trips recorded.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)) } }
-            } else {
-                history.forEach { log ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selectedLog = log; showEditDialog = true }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Motorbike" -> Icons.Default.TwoWheeler; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.Default.DirectionsBike; "Walk" -> Icons.Default.DirectionsWalk; else -> Icons.Default.DirectionsRun }
-                            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) { Text(log.type, fontWeight = FontWeight.Bold); Text(log.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
-                            Column(horizontalAlignment = Alignment.End) { val label = if(log.type in listOf("Bike", "Walk")) "Saved" else "Produced"; Text("${log.distance.format(1)} km", fontWeight = FontWeight.Bold); Text("$label ${log.co2.format(2)} kg", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
+
+        // XP Day Picker
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState(initial = 1000)), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            days.forEach { date ->
+                // Calculate XP for each day to show on the item
+                var dayXp by remember(date, refreshTrigger) { mutableStateOf(0) }
+                LaunchedEffect(date, refreshTrigger) {
+                    if (manager.hasAllPermissions()) {
+                        val insight = manager.getDailyHealthData(date)
+                        val tripXp = manager.getHistory().filter { it.date == date.format(DateTimeFormatter.ISO_DATE) }.sumOf { 
+                            if(it.type in listOf("Bike", "Walk")) it.distance * 15 else if(it.type in listOf("Bus", "Train")) it.distance * 5 else 0.0
+                        }.toInt()
+                        dayXp = insight.xp + tripXp
+                    }
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { selectedDate = date }) {
+                    Text(date.dayOfWeek.name.take(1), fontSize = 12.sp, color = if(date == selectedDate) MaterialTheme.colorScheme.primary else Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(if (date == selectedDate) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, CircleShape)
+                            .clip(CircleShape)
+                            .background(if (date == selectedDate) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("${dayXp}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(dayXp > 0) MaterialTheme.colorScheme.primary else Color.Gray)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        if (dailyInsight != null) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMM")), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp)) {
+                        CircularProgressIndicator(
+                            progress = { (dailyInsight!!.dailySteps / 10000f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxSize(),
+                            strokeWidth = 10.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surface
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${dailyInsight!!.dailySteps}", fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                            Text("Steps", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        ActivityMetric("Dist", "${dailyInsight!!.dailyDistance.format(2)} km", Icons.Default.Map)
+                        ActivityMetric("Health XP", "${dailyInsight!!.xp}", Icons.Default.Bolt)
+                        ActivityMetric("CO2 Sav", "${dailyInsight!!.totalCarbon.format(2)} kg", Icons.Default.Nature)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+        Text("Logged Trips", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (history.isEmpty()) {
+            Text("No logged trips for this day.", color = Color.Gray, modifier = Modifier.padding(vertical = 20.dp), textAlign = TextAlign.Center)
+        } else {
+            history.forEach { log ->
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selectedLog = log; showEditDialog = true }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Motorbike" -> Icons.Default.TwoWheeler; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.Default.DirectionsBike; "Walk" -> Icons.Default.DirectionsWalk; else -> Icons.Default.DirectionsRun }
+                        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) { 
+                            Text(log.type, fontWeight = FontWeight.Bold) 
+                            Text("${log.distance.format(1)} km", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                        Column(horizontalAlignment = Alignment.End) { 
+                            val label = if(log.type in listOf("Bike", "Walk")) "Saved" else "Produced"
+                            Text("${log.co2.format(2)} kg", fontWeight = FontWeight.Bold)
+                            Text(label, fontSize = 10.sp, color = Color.Gray)
                         }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(20.dp))
         }
+        Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun ActivityMetric(label: String, value: String, icon: ImageVector) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text(label, fontSize = 12.sp, color = Color.Gray)
     }
 }
 
