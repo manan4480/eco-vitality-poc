@@ -74,10 +74,16 @@ class MainActivity : ComponentActivity() {
             EcoVitalityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 val manager = remember { CarbonManager(this) }
+                var profileImageUri by remember { 
+                    mutableStateOf(
+                        prefs.getString("currentImage", null)?.let { Uri.parse(it) } ?: 
+                        prefs.getString("image_${prefs.getString("currentUser", "")}", null)?.let { Uri.parse(it) }
+                    ) 
+                }
                 
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Scaffold(
-                        bottomBar = { BottomNavigationBar(navController) }
+                        bottomBar = { BottomNavigationBar(navController, profileImageUri) }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                             NavHost(navController = navController, startDestination = "dashboard") {
@@ -85,7 +91,11 @@ class MainActivity : ComponentActivity() {
                                 composable("track") { TrackScreen(manager) }
                                 composable("history") { HistoryScreen(manager) }
                                 composable("rewards") { RewardsScreen(manager) }
-                                composable("profile") { ProfileScreen(manager) }
+                                composable("profile") { 
+                                    ProfileScreen(manager, profileImageUri) { newUri -> 
+                                        profileImageUri = newUri 
+                                    } 
+                                }
                             }
                         }
                     }
@@ -96,7 +106,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun BottomNavigationBar(navController: NavController) {
+fun BottomNavigationBar(navController: NavController, profileImageUri: Uri?) {
+    val context = LocalContext.current
+    
     val items = listOf(
         Triple("dashboard", "Dashboard", Icons.Default.Dashboard),
         Triple("track", "Track", Icons.Default.AddLocationAlt),
@@ -110,7 +122,23 @@ fun BottomNavigationBar(navController: NavController) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
         items.forEach { (route, label, icon) ->
             NavigationBarItem(
-                icon = { Icon(icon, contentDescription = label) },
+                icon = { 
+                    if (route == "profile" && profileImageUri != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(profileImageUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = label,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(icon, contentDescription = label)
+                    }
+                },
                 label = { Text(label, fontSize = 10.sp) },
                 selected = currentRoute == route,
                 onClick = {
@@ -730,23 +758,17 @@ fun ActivityMetric(label: String, value: String, icon: ImageVector) {
 }
 
 @Composable
-fun ProfileScreen(manager: CarbonManager) {
+fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageChange: (Uri) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
     var username by remember { mutableStateOf(prefs.getString("currentUsername", "") ?: "") }
     var email by remember { mutableStateOf(prefs.getString("currentUser", "") ?: "") }
-    var profileImageUri by remember { 
-        mutableStateOf(
-            prefs.getString("currentImage", null)?.let { Uri.parse(it) } ?: 
-            prefs.getString("image_${prefs.getString("currentUser", "")}", null)?.let { Uri.parse(it) }
-        ) 
-    }
     var isEditing by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            profileImageUri = uri
+            onProfileImageChange(uri)
             try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { Log.e("MainActivity", "Failed to take permission", e) }
             prefs.edit().putString("currentImage", uri.toString()).apply()
             prefs.getString("currentUser", null)?.let { prefs.edit().putString("image_$it", uri.toString()).apply() }
