@@ -25,6 +25,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
@@ -37,20 +38,22 @@ data class TransportLog(
 )
 
 data class CarbonInsight(
-    val weeklyDistance: Double,
+    val dailyDistance: Double,
+    val dailySteps: Int,
     val totalCarbon: Double,
-    val insightMessage: String,
-    val needsPermissions: Boolean = false,
-    val isNotAvailable: Boolean = false
+    val xp: Int,
+    val insightMessage: String = "",
+    val needsPermissions: Boolean = false
 )
 
 class CarbonManager(val context: Context) : SensorEventListener {
 
-    private val CAR_FACTOR = 0.16691
-    private val BUS_FACTOR = 0.10846
-    private val TRAIN_FACTOR = 0.03549
-    private val MOTORBIKE_FACTOR = 0.11337
-    private val STEP_LENGTH_METERS = 0.75 
+    val CAR_FACTOR = 0.16691
+    val BUS_FACTOR = 0.10846
+    val TRAIN_FACTOR = 0.03549
+    val MOTORBIKE_FACTOR = 0.11337
+    val BIKE_FACTOR = 0.0 // Bike and Walk are zero emission
+    val STEP_LENGTH_METERS = 0.75 
 
     private var sensorManager: SensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private var stepSensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
@@ -102,7 +105,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
             "bike_km" to prefs.getFloat("manual_bike_km", 0f),
             "motorbike_km" to prefs.getFloat("manual_motorbike_km", 0f),
             "walk_km" to prefs.getFloat("manual_walk_km", 0f),
-            "history" to getHistory().map { "${it.date}|${it.type}|${it.distance}|${it.co2}" }
+            "history" to getHistory().map { "${it.date}|${it.type}|${it.distance}|${it.co2}|${it.id}" }
         )
         db.collection("users").document(user.uid).set(data)
     }
@@ -191,16 +194,30 @@ class CarbonManager(val context: Context) : SensorEventListener {
         } catch (e: Exception) { false }
     }
 
-    suspend fun getWeeklyData(): CarbonInsight {
-        if (!hasAllPermissions()) return CarbonInsight(getLiveDistanceKm(), 0.0, "Permissions needed.", needsPermissions = true)
+    suspend fun getDailyHealthData(date: LocalDate): CarbonInsight {
+        if (!hasAllPermissions()) return CarbonInsight(0.0, 0, 0.0, 0, needsPermissions = true)
         val client = HealthConnectClient.getOrCreate(context)
-        val endTime = Instant.now()
-        val startTime = Instant.now().truncatedTo(ChronoUnit.DAYS).minus(7, ChronoUnit.DAYS)
+        val startTime = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
+        val endTime = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant()
+        
         return try {
             val dists = client.readRecords(ReadRecordsRequest(DistanceRecord::class, TimeRangeFilter.between(startTime, endTime)))
+            val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, TimeRangeFilter.between(startTime, endTime)))
+            
             val totalDist = dists.records.sumOf { it.distance.inKilometers }
-            CarbonInsight(totalDist, totalDist * CAR_FACTOR, "You covered ${totalDist.format(2)} km this week!")
-        } catch (e: Exception) { CarbonInsight(0.0, 0.0, "Error: ${e.message}") }
+            val totalSteps = steps.records.sumOf { it.count }.toInt()
+            
+            // If distance is missing but steps are present, estimate distance
+            val finalDist = if (totalDist == 0.0 && totalSteps > 0) (totalSteps * STEP_LENGTH_METERS) / 1000.0 else totalDist
+            
+            val co2Saved = finalDist * CAR_FACTOR // Assuming walking saves car emissions
+            val xp = (finalDist * 15).toInt() + (totalSteps / 100) // 15 XP per km + 1 XP per 100 steps
+            
+            CarbonInsight(finalDist, totalSteps, co2Saved, xp)
+        } catch (e: Exception) { 
+            Log.e("HealthConnect", "Error reading data", e)
+            CarbonInsight(0.0, 0, 0.0, 0) 
+        }
     }
 
     fun calculateCarCarbon(km: Double) = km * CAR_FACTOR
@@ -225,7 +242,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
                 "Car" -> calculateCarCarbon(newDist)
                 "Bus" -> calculateBusCarbon(newDist)
                 "Train" -> calculateTrainCarbon(newDist)
-                "MotorBike" -> calculateMotorBikeCarbon(newDist)
+                "Motorbike" -> calculateMotorBikeCarbon(newDist)
                 else -> 0.0 
             }
             val id = parts.getOrNull(4) ?: System.currentTimeMillis().toString()
@@ -235,7 +252,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
                 "Car" -> calculateCarCarbon(dist)
                 "Bus" -> calculateBusCarbon(dist)
                 "Train" -> calculateTrainCarbon(dist)
-                "MotorBike" -> calculateMotorBikeCarbon(dist)
+                "Motorbike" -> calculateMotorBikeCarbon(dist)
                 else -> 0.0 
             }
             history.add("$date|$type|$dist|$co2|${System.currentTimeMillis()}")
@@ -287,7 +304,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
                 "Car" -> calculateCarCarbon(dist)
                 "Bus" -> calculateBusCarbon(dist)
                 "Train" -> calculateTrainCarbon(dist)
-                "MotorBike" -> calculateMotorBikeCarbon(dist)
+                "Motorbike" -> calculateMotorBikeCarbon(dist)
                 "Bike", "Walk" -> 0.0
                 else -> 0.0 
             }
@@ -328,7 +345,6 @@ class CarbonManager(val context: Context) : SensorEventListener {
     fun calculateXP(walk: Double, bike: Double, trans: Double, motorbike: Double, car: Double) = (walk * 15 + bike * 15 + trans * 5).toInt()
 
     suspend fun getTotalXP(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Int {
-        val weekly = getWeeklyData()
         val historyXp = getHistory().sumOf { 
             when(it.type) {
                 "Bike", "Walk" -> it.distance * 15
@@ -336,17 +352,19 @@ class CarbonManager(val context: Context) : SensorEventListener {
                 else -> 0.0
             }
         }
-        return (historyXp + weekly.weeklyDistance * 15 + calculateXP(sw, sb, sb2 + st, smb, sc)).toInt()
+        val currentDayHealth = getDailyHealthData(LocalDate.now())
+        return (historyXp + currentDayHealth.xp + calculateXP(sw, sb, sb2 + st, smb, sc)).toInt()
     }
 
     suspend fun getOverallEcoScore(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Int {
-        val weekly = getWeeklyData()
         val h = getHistory()
         val last7 = LocalDate.now().minusDays(7)
         val rh = h.filter { try { LocalDate.parse(it.date).isAfter(last7) } catch (e: Exception) { false } }
-        val tw = weekly.weeklyDistance + sw
+        val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance }
+        
+        val tw = health7 + sw
         val tb = rh.filter { it.type == "Bike" }.sumOf { it.distance } + sb
-        val tmb = rh.filter { it.type == "MotorBike" }.sumOf { it.distance } + smb
+        val tmb = rh.filter { it.type == "Motorbike" }.sumOf { it.distance } + smb
         val tc = rh.filter { it.type == "Car" }.sumOf { it.distance } + sc
         val tbus = rh.filter { it.type == "Bus" }.sumOf { it.distance } + sb2
         val ttrain = rh.filter { it.type == "Train" }.sumOf { it.distance } + st
@@ -358,17 +376,17 @@ class CarbonManager(val context: Context) : SensorEventListener {
         calculateMotorBikeCarbon(smb) + calculateCarCarbon(sc) + calculateBusCarbon(sb) + calculateTrainCarbon(st)
 
     suspend fun getTotalSavedCO2(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Double {
-        val w = getWeeklyData().weeklyDistance * CAR_FACTOR
+        val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance } * CAR_FACTOR
         val h = getHistory().sumOf { 
             when(it.type) { 
                 "Bike", "Walk" -> it.distance * CAR_FACTOR
                 "Bus" -> it.distance * (CAR_FACTOR - BUS_FACTOR)
                 "Train" -> it.distance * (CAR_FACTOR - TRAIN_FACTOR)
-                "MotorBike" -> it.distance * (CAR_FACTOR - MOTORBIKE_FACTOR)
+                "Motorbike" -> it.distance * (CAR_FACTOR - MOTORBIKE_FACTOR)
                 else -> 0.0 
             } 
         }
-        return w + h + (sw + sb) * CAR_FACTOR + sb2 * (CAR_FACTOR - BUS_FACTOR) + st * (CAR_FACTOR - TRAIN_FACTOR) + smb * (CAR_FACTOR - MOTORBIKE_FACTOR)
+        return health7 + h + (sw + sb) * CAR_FACTOR + sb2 * (CAR_FACTOR - BUS_FACTOR) + st * (CAR_FACTOR - TRAIN_FACTOR) + smb * (CAR_FACTOR - MOTORBIKE_FACTOR)
     }
 
     fun getInstallIntent() = Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("market://details?id=com.google.android.apps.healthdata"); putExtra("overlay", true); putExtra("callerId", context.packageName) }

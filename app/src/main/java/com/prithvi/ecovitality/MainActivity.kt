@@ -55,6 +55,8 @@ import coil.request.ImageRequest
 import com.prithvi.ecovitality.ui.theme.EcoVitalityTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,7 +75,8 @@ class MainActivity : ComponentActivity() {
                         bottomBar = { BottomNavigationBar(navController) }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                            NavHost(navController = navController, startDestination = "dashboard") {
+                            NavHost(navController = navController, startDestination = "home") {
+                                composable("home") { HomeScreen(manager) }
                                 composable("dashboard") { DashboardScreen(manager) }
                                 composable("track") { TrackScreen(manager) }
                                 composable("history") { HistoryScreen(manager) }
@@ -90,7 +93,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun BottomNavigationBar(navController: NavController) {
     val items = listOf(
-        Triple("dashboard", "Home", Icons.Default.Dashboard),
+        Triple("home", "Home", Icons.Default.Home),
+        Triple("dashboard", "Dashboard", Icons.Default.Dashboard),
         Triple("track", "Track", Icons.Default.AddLocationAlt),
         Triple("history", "History", Icons.Default.History),
         Triple("profile", "Profile", Icons.Default.Person)
@@ -102,7 +106,7 @@ fun BottomNavigationBar(navController: NavController) {
         items.forEach { (route, label, icon) ->
             NavigationBarItem(
                 icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label) },
+                label = { Text(label, fontSize = 10.sp) },
                 selected = currentRoute == route,
                 onClick = {
                     navController.navigate(route) {
@@ -118,6 +122,103 @@ fun BottomNavigationBar(navController: NavController) {
                 )
             )
         }
+    }
+}
+
+@Composable
+fun HomeScreen(manager: CarbonManager) {
+    val context = LocalContext.current
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dailyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
+    var hasPermissions by remember { mutableStateOf(true) }
+    
+    val days = remember { (0..13).map { LocalDate.now().minusDays(it.toLong()) }.reversed() }
+
+    LaunchedEffect(selectedDate) {
+        hasPermissions = manager.hasAllPermissions()
+        if (hasPermissions) {
+            dailyInsight = manager.getDailyHealthData(selectedDate)
+        }
+    }
+
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Text("Daily Activity", style = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Horizontal Day Picker
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState(initial = 1000)), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            days.forEach { date ->
+                DayItem(date, isSelected = date == selectedDate, xp = if(date == LocalDate.now()) dailyInsight?.xp ?: 0 else 0) {
+                    selectedDate = date
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        if (dailyInsight != null) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMM")), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(150.dp)) {
+                        CircularProgressIndicator(
+                            progress = { (dailyInsight!!.dailySteps / 10000f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxSize(),
+                            strokeWidth = 12.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surface
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(30.dp))
+                            Text("${dailyInsight!!.xp} XP", fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(30.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        ActivityMetric("Steps", dailyInsight!!.dailySteps.toString(), Icons.Default.DirectionsWalk)
+                        ActivityMetric("Distance", "${dailyInsight!!.dailyDistance.format(2)} km", Icons.Default.Map)
+                        ActivityMetric("Saved", "${dailyInsight!!.totalCarbon.format(2)} kg", Icons.Default.Nature)
+                    }
+                }
+            }
+        } else if (!hasPermissions) {
+            Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                Button(onClick = { /* Handle permissions */ }) {
+                    Text("Sync Health Connect Data")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DayItem(date: LocalDate, isSelected: Boolean, xp: Int, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
+        Text(date.dayOfWeek.name.take(1), fontSize = 12.sp, color = if(isSelected) MaterialTheme.colorScheme.primary else Color.Gray)
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .size(45.dp)
+                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, CircleShape)
+                .clip(CircleShape)
+                .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Favorite, contentDescription = null, tint = if(xp > 0) Color.Red else Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+fun ActivityMetric(label: String, value: String, icon: ImageVector) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text(label, fontSize = 12.sp, color = Color.Gray)
     }
 }
 
@@ -167,8 +268,7 @@ fun DashboardScreen(manager: CarbonManager) {
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.height(300.dp),
-            contentPadding = PaddingValues(bottom = 15.dp),
+            modifier = Modifier.height(280.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -178,7 +278,7 @@ fun DashboardScreen(manager: CarbonManager) {
             item { MetricStatusCard("Produced", "${co2Generated.format(2)} kg", Icons.Default.Co2, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer) }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(220.dp)) {
             val total = manager.calculateCarCarbon(carDist + autoCarDist) + manager.calculateBusCarbon(busDist) + manager.calculateTrainCarbon(trainDist) + manager.calculateMotorBikeCarbon(motorbikeDist)
             CircularProgressIndicator(progress = { (total / 10.0).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.size(200.dp), color = if (total < 5) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, strokeWidth = 14.dp, trackColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -190,14 +290,34 @@ fun DashboardScreen(manager: CarbonManager) {
 
         Spacer(modifier = Modifier.height(30.dp))
         Text("Travel Breakdown", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(15.dp))
         
-        MetricCard("Car", "${(carDist + autoCarDist).format(1)} km", "${manager.calculateCarCarbon(carDist + autoCarDist).format(2)} kg", MaterialTheme.colorScheme.error)
-        MetricCard("Motorbike", "${motorbikeDist.format(1)} km", "${manager.calculateMotorBikeCarbon(motorbikeDist).format(2)} kg", Color(0xFF9C27B0))
-        MetricCard("Bus", "${busDist.format(1)} km", "${manager.calculateBusCarbon(busDist).format(2)} kg", MaterialTheme.colorScheme.secondary)
-        MetricCard("Train", "${trainDist.format(1)} km", "${manager.calculateTrainCarbon(trainDist).format(2)} kg", MaterialTheme.colorScheme.primary)
-        MetricCard("Bike", "${bikeDist.format(1)} km", "Saved ${manager.calculateCarCarbon(bikeDist).format(2)} kg", MaterialTheme.colorScheme.tertiary)
-        MetricCard("Walking", "${walkDist.format(1)} km", "Zero Carbon", Color(0xFF4CAF50))
+        val breakdownItems = listOf(
+            Triple("Car", "${(carDist + autoCarDist).format(1)} km", MaterialTheme.colorScheme.error),
+            Triple("Motorbike", "${motorbikeDist.format(1)} km", Color(0xFF9C27B0)),
+            Triple("Bus", "${busDist.format(1)} km", MaterialTheme.colorScheme.secondary),
+            Triple("Train", "${trainDist.format(1)} km", MaterialTheme.colorScheme.primary),
+            Triple("Bike", "${bikeDist.format(1)} km", MaterialTheme.colorScheme.tertiary),
+            Triple("Walking", "${walkDist.format(1)} km", Color(0xFF4CAF50))
+        )
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.height(220.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(breakdownItems) { (mode, dist, color) ->
+                Card(modifier = Modifier.aspectRatio(1f), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(8.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(mode, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(dist, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -205,7 +325,6 @@ fun DashboardScreen(manager: CarbonManager) {
 fun TrackScreen(manager: CarbonManager) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
-    val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
 
     var walkDist by remember { mutableDoubleStateOf(manager.getManualDistance("Walk")) }
@@ -215,15 +334,8 @@ fun TrackScreen(manager: CarbonManager) {
     var bikeDist by remember { mutableDoubleStateOf(manager.getManualDistance("Bike")) }
     var motorbikeDist by remember { mutableDoubleStateOf(manager.getManualDistance("Motorbike")) }
 
-    LaunchedEffect(Unit) {
-        manager.fetchFromCloud()
-    }
-
     Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
-        val user = prefs.getString("currentUsername", "Eco User") ?: "Eco User"
         Text("Start Tracking", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
-        Text("Welcome, $user", color = MaterialTheme.colorScheme.secondary, fontSize = 14.sp)
-        
         Spacer(modifier = Modifier.height(30.dp))
         LiveTripTracker(manager)
 
@@ -231,19 +343,18 @@ fun TrackScreen(manager: CarbonManager) {
         Text("Manual Logging", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(15.dp))
         
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TransportInput("Car", carDist, Modifier.weight(1f)) { carDist = it; manager.saveManualDistance("Car", it); manager.saveToHistory("Car", it) }
-                TransportInput("Motorbike", motorbikeDist, Modifier.weight(1f)) { motorbikeDist = it; manager.saveManualDistance("Motorbike", it); manager.saveToHistory("Motorbike", it) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TransportInput("Bus", busDist, Modifier.weight(1f)) { busDist = it; manager.saveManualDistance("Bus", it); manager.saveToHistory("Bus", it) }
-                TransportInput("Train", trainDist, Modifier.weight(1f)) { trainDist = it; manager.saveManualDistance("Train", it); manager.saveToHistory("Train", it) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TransportInput("Bike", bikeDist, Modifier.weight(1f)) { bikeDist = it; manager.saveManualDistance("Bike", it); manager.saveToHistory("Bike", it) }
-                TransportInput("Walk", walkDist, Modifier.weight(1f)) { walkDist = it; manager.saveManualDistance("Walk", it); manager.saveToHistory("Walk", it) }
-            }
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.height(250.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item { TransportInput("Car", carDist) { carDist = it; manager.saveManualDistance("Car", it); manager.saveToHistory("Car", it) } }
+            item { TransportInput("Motorbike", motorbikeDist) { motorbikeDist = it; manager.saveManualDistance("Motorbike", it); manager.saveToHistory("Motorbike", it) } }
+            item { TransportInput("Bus", busDist) { busDist = it; manager.saveManualDistance("Bus", it); manager.saveToHistory("Bus", it) } }
+            item { TransportInput("Train", trainDist) { trainDist = it; manager.saveManualDistance("Train", it); manager.saveToHistory("Train", it) } }
+            item { TransportInput("Bike", bikeDist) { bikeDist = it; manager.saveManualDistance("Bike", it); manager.saveToHistory("Bike", it) } }
+            item { TransportInput("Walk", walkDist) { walkDist = it; manager.saveManualDistance("Walk", it); manager.saveToHistory("Walk", it) } }
         }
     }
 }
@@ -314,11 +425,11 @@ fun ModeButton(mode: String, icon: ImageVector, color: Color, onClick: () -> Uni
 @Composable
 fun MetricStatusCard(label: String, value: String, icon: ImageVector, bgColor: Color, tint: Color, modifier: Modifier = Modifier) {
     Card(modifier = modifier.fillMaxSize(), colors = CardDefaults.cardColors(containerColor = bgColor), shape = RoundedCornerShape(20.dp)) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(32.dp))
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(label, fontSize = 12.sp, color = tint.copy(alpha = 0.8f))
-            Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = tint, textAlign = TextAlign.Center)
+        Column(modifier = Modifier.padding(12.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(label, fontSize = 11.sp, color = tint.copy(alpha = 0.8f))
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint, textAlign = TextAlign.Center)
         }
     }
 }
@@ -348,12 +459,10 @@ fun HistoryScreen(manager: CarbonManager) {
     val context = LocalContext.current
     var refreshTrigger by remember { mutableStateOf(0) }
     var history by remember { mutableStateOf(manager.getHistory()) }
-    var weeklyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
     var selectedLog by remember { mutableStateOf<TransportLog?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshTrigger) { history = manager.getHistory() }
-    LaunchedEffect(Unit) { if (manager.hasAllPermissions()) weeklyInsight = manager.getWeeklyData() }
 
     if (showEditDialog && selectedLog != null) {
         AlertDialog(
