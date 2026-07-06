@@ -32,7 +32,8 @@ data class TransportLog(
     val date: String = "",
     val type: String = "",
     val distance: Double = 0.0,
-    val co2: Double = 0.0
+    val co2: Double = 0.0,
+    val id: String = ""
 )
 
 data class CarbonInsight(
@@ -205,19 +206,78 @@ class CarbonManager(val context: Context) : SensorEventListener {
         val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
         val date = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
         val history = prefs.getStringSet("history_logs", emptySet())?.toMutableSet() ?: mutableSetOf()
-        history.removeIf { it.startsWith("$date|$type|") }
-        if (dist > 0) {
+        
+        val isNewTrip = prefs.getBoolean("is_new_trip", false)
+        val existingEntry = if (isNewTrip) null else history.filter { it.startsWith("$date|$type|") }.lastOrNull()
+
+        if (existingEntry != null) {
+            val parts = existingEntry.split("|")
+            val currentDist = parts[2].toDouble()
+            history.remove(existingEntry)
+            val newDist = currentDist + dist
+            val co2 = when(type) { "Car" -> calculateCarCarbon(newDist); "Bus" -> calculateBusCarbon(newDist); "Train" -> calculateTrainCarbon(newDist); else -> 0.0 }
+            val id = parts.getOrNull(4) ?: System.currentTimeMillis().toString()
+            history.add("$date|$type|$newDist|$co2|$id")
+        } else {
             val co2 = when(type) { "Car" -> calculateCarCarbon(dist); "Bus" -> calculateBusCarbon(dist); "Train" -> calculateTrainCarbon(dist); else -> 0.0 }
-            history.add("$date|$type|$dist|$co2")
+            history.add("$date|$type|$dist|$co2|${System.currentTimeMillis()}")
+            if (isNewTrip) prefs.edit().putBoolean("is_new_trip", false).apply()
         }
+        
         prefs.edit().putStringSet("history_logs", history).apply()
         syncToCloud()
     }
 
     fun getHistory(): List<TransportLog> {
         return context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE).getStringSet("history_logs", emptySet())?.mapNotNull {
-            try { val p = it.split("|"); TransportLog(p[0], p[1], p[2].toDouble(), p[3].toDouble()) } catch (e: Exception) { null }
-        }?.sortedByDescending { it.date } ?: emptyList()
+            try { 
+                val p = it.split("|")
+                TransportLog(p[0], p[1], p[2].toDouble(), p[3].toDouble(), p.getOrNull(4) ?: "") 
+            } catch (e: Exception) { null }
+        }?.sortedByDescending { it.id.ifEmpty { it.date } } ?: emptyList()
+    }
+
+    fun deleteHistoryItem(id: String) {
+        val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
+        val history = prefs.getStringSet("history_logs", emptySet())?.toMutableSet() ?: mutableSetOf()
+        
+        val toRemove = history.find { 
+            val p = it.split("|")
+            p.getOrNull(4) == id || (id.isEmpty() && p.size < 5) 
+        }
+        
+        if (toRemove != null) {
+            history.remove(toRemove)
+            prefs.edit().putStringSet("history_logs", history).commit()
+            syncToCloud()
+        }
+    }
+
+    fun updateHistoryItem(id: String, newType: String) {
+        val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
+        val history = prefs.getStringSet("history_logs", emptySet())?.toMutableSet() ?: mutableSetOf()
+        
+        val entry = history.find { 
+            val p = it.split("|")
+            p.getOrNull(4) == id || (id.isEmpty() && p.size < 5)
+        }
+        
+        if (entry != null) {
+            val parts = entry.split("|")
+            val dist = parts[2].toDouble()
+            val co2 = when(newType) { 
+                "Car" -> calculateCarCarbon(dist)
+                "Bus" -> calculateBusCarbon(dist)
+                "Train" -> calculateTrainCarbon(dist)
+                "Bike", "Walk" -> 0.0
+                else -> 0.0 
+            }
+            history.remove(entry)
+            val finalId = id.ifEmpty { System.currentTimeMillis().toString() }
+            history.add("${parts[0]}|$newType|$dist|$co2|$finalId")
+            prefs.edit().putStringSet("history_logs", history).commit()
+            syncToCloud()
+        }
     }
 
     fun saveManualDistance(type: String, dist: Double) {

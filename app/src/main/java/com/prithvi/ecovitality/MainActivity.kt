@@ -1,5 +1,6 @@
 package com.prithvi.ecovitality
 
+import android.app.Activity
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -54,7 +56,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            EcoVitalityTheme {
+            val context = LocalContext.current
+            val prefs = remember { context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE) }
+            var themeMode by remember { mutableStateOf(prefs.getString("app_theme", "System") ?: "System") }
+
+            EcoVitalityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 val manager = remember { CarbonManager(this) }
                 
@@ -115,7 +121,9 @@ fun DashboardScreen(manager: CarbonManager) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     
-    var walkDist by remember { mutableDoubleStateOf(0.0) }
+    val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
+    
+    var walkDist by remember { mutableDoubleStateOf(manager.getManualDistance("Walk")) }
     var carDist by remember { mutableDoubleStateOf(manager.getManualDistance("Car")) }
     var busDist by remember { mutableDoubleStateOf(manager.getManualDistance("Bus")) }
     var trainDist by remember { mutableDoubleStateOf(manager.getManualDistance("Train")) }
@@ -128,27 +136,24 @@ fun DashboardScreen(manager: CarbonManager) {
     var co2Saved by remember { mutableDoubleStateOf(0.0) }
     var weeklyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
 
-    val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
-
     LaunchedEffect(Unit) {
-        // Initial Fetch
         manager.fetchFromCloud()
-        
         while(true) {
-            walkDist = manager.getLiveDistanceKm()
             autoCarDist = prefs.getFloat("auto_car_km", 0f).toDouble()
             carDist = manager.getManualDistance("Car")
             busDist = manager.getManualDistance("Bus")
             trainDist = manager.getManualDistance("Train")
             bikeDist = manager.getManualDistance("Bike")
+            walkDist = manager.getManualDistance("Walk")
 
             manager.updateTravelDistance()
             
             if (manager.hasAllPermissions()) {
-                totalXp = manager.getTotalXP(walkDist, bikeDist, carDist + autoCarDist, busDist, trainDist)
-                overallEcoScore = manager.getOverallEcoScore(walkDist, bikeDist, carDist + autoCarDist, busDist, trainDist)
+                val liveWalk = manager.getLiveDistanceKm()
+                totalXp = manager.getTotalXP(liveWalk + walkDist, bikeDist, carDist + autoCarDist, busDist, trainDist)
+                overallEcoScore = manager.getOverallEcoScore(liveWalk + walkDist, bikeDist, carDist + autoCarDist, busDist, trainDist)
                 co2Generated = manager.getTotalGeneratedCO2(carDist + autoCarDist, busDist, trainDist)
-                co2Saved = manager.getTotalSavedCO2(walkDist, bikeDist, busDist, trainDist)
+                co2Saved = manager.getTotalSavedCO2(liveWalk + walkDist, bikeDist, busDist, trainDist)
                 weeklyInsight = manager.getWeeklyData()
             }
             delay(5000)
@@ -194,8 +199,22 @@ fun DashboardScreen(manager: CarbonManager) {
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 15.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricStatusCard("CO2 Saved", "${co2Saved.format(2)} kg", Icons.Default.Nature, Color(0xFFE8F5E9), Color(0xFF2E7D32), Modifier.weight(1f))
-            MetricStatusCard("CO2 Produced", "${co2Generated.format(2)} kg", Icons.Default.Co2, Color(0xFFFFF3E0), Color(0xFFE65100), Modifier.weight(1f))
+            MetricStatusCard(
+                "CO2 Saved", 
+                "${co2Saved.format(2)} kg", 
+                Icons.Default.Nature, 
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f), 
+                MaterialTheme.colorScheme.onPrimaryContainer, 
+                Modifier.weight(1f)
+            )
+            MetricStatusCard(
+                "CO2 Produced", 
+                "${co2Generated.format(2)} kg", 
+                Icons.Default.Co2, 
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f), 
+                MaterialTheme.colorScheme.onErrorContainer, 
+                Modifier.weight(1f)
+            )
         }
 
         LiveTripTracker(manager)
@@ -217,6 +236,7 @@ fun DashboardScreen(manager: CarbonManager) {
             TransportInput("Bus", busDist, Modifier.weight(1f)) { busDist = it; manager.saveManualDistance("Bus", it); manager.saveToHistory("Bus", it) }
             TransportInput("Train", trainDist, Modifier.weight(1f)) { trainDist = it; manager.saveManualDistance("Train", it); manager.saveToHistory("Train", it) }
             TransportInput("Bike", bikeDist, Modifier.weight(1f)) { bikeDist = it; manager.saveManualDistance("Bike", it); manager.saveToHistory("Bike", it) }
+            TransportInput("Walk", walkDist, Modifier.weight(1f)) { walkDist = it; manager.saveManualDistance("Walk", it); manager.saveToHistory("Walk", it) }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -224,6 +244,7 @@ fun DashboardScreen(manager: CarbonManager) {
         MetricCard("Bus Trip", "${busDist.format(1)} km", "${manager.calculateBusCarbon(busDist).format(2)} kg CO2", MaterialTheme.colorScheme.secondary)
         MetricCard("Train Trip", "${trainDist.format(1)} km", "${manager.calculateTrainCarbon(trainDist).format(2)} kg CO2", MaterialTheme.colorScheme.primary)
         MetricCard("Bike Trip", "${bikeDist.format(1)} km", "Saved ${manager.calculateCarCarbon(bikeDist).format(2)} kg CO2", MaterialTheme.colorScheme.tertiary)
+        MetricCard("Walking", "${walkDist.format(1)} km", "Zero Carbon", Color(0xFF4CAF50))
     }
 }
 
@@ -243,9 +264,9 @@ fun LiveTripTracker(manager: CarbonManager) {
                     Button(onClick = { manager.stopManualTrip() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Stop") }
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Car", "Bus", "Train", "Bike").forEach { mode ->
-                        Button(onClick = { manager.startManualTrip(mode) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) { Text(mode, fontSize = 11.sp) }
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Car", "Bus", "Train", "Bike", "Walk").forEach { mode ->
+                        Button(onClick = { manager.startManualTrip(mode) }, modifier = Modifier.width(80.dp), contentPadding = PaddingValues(0.dp)) { Text(mode, fontSize = 11.sp) }
                     }
                 }
             }
@@ -258,7 +279,9 @@ fun MetricStatusCard(label: String, value: String, icon: ImageVector, bgColor: C
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = bgColor), shape = RoundedCornerShape(16.dp)) {
         Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
-            Spacer(modifier = Modifier.height(4.dp)); Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)); Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(label, fontSize = 12.sp, color = tint.copy(alpha = 0.8f))
+            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = tint)
         }
     }
 }
@@ -280,9 +303,63 @@ fun MetricCard(mode: String, dist: String, co2: String, color: Color) {
 
 @Composable
 fun HistoryScreen(manager: CarbonManager) {
-    val history = manager.getHistory()
+    val context = LocalContext.current
+    var refreshTrigger by remember { mutableStateOf(0) }
+    var history by remember { mutableStateOf(manager.getHistory()) }
     var weeklyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
+    var selectedLog by remember { mutableStateOf<TransportLog?>(null) }
+    var showEditDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(refreshTrigger) {
+        history = manager.getHistory()
+    }
+
     LaunchedEffect(Unit) { if (manager.hasAllPermissions()) weeklyInsight = manager.getWeeklyData() }
+
+    if (showEditDialog && selectedLog != null) {
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Edit Trip") },
+            text = {
+                Column {
+                    Text("Change transport type for ${selectedLog!!.distance.format(1)} km trip on ${selectedLog!!.date}")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    listOf("Car", "Bus", "Train", "Bike", "Walk").forEach { type ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    manager.updateHistoryItem(selectedLog!!.id, type)
+                                    refreshTrigger++
+                                    showEditDialog = false
+                                    Toast.makeText(context, "Updated to $type", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(selected = selectedLog!!.type == type, onClick = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(type)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    manager.deleteHistoryItem(selectedLog!!.id)
+                    refreshTrigger++
+                    showEditDialog = false
+                    Toast.makeText(context, "Trip Deleted", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.padding(20.dp).fillMaxSize()) {
         Text("Activity History", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text("Your sustainable journeys", color = MaterialTheme.colorScheme.secondary, fontSize = 14.sp)
@@ -301,12 +378,22 @@ fun HistoryScreen(manager: CarbonManager) {
                 Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(60.dp), tint = MaterialTheme.colorScheme.outline); Text("No trips recorded.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)) } }
             } else {
                 history.forEach { log ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                            .clickable {
+                                selectedLog = log
+                                showEditDialog = true
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.Default.DirectionsBike; else -> Icons.Default.DirectionsRun }
+                            val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.Default.DirectionsBike; "Walk" -> Icons.Default.DirectionsWalk; else -> Icons.Default.DirectionsRun }
                             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) { Text(log.type, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(log.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
-                            Column(horizontalAlignment = Alignment.End) { val label = if(log.type == "Bike") "Saved" else "Produced"; Text("${log.distance.format(1)} km", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant); Text("$label ${log.co2.format(2)} kg", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
+                            Column(horizontalAlignment = Alignment.End) { val label = if(log.type in listOf("Bike", "Walk")) "Saved" else "Produced"; Text("${log.distance.format(1)} km", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant); Text("$label ${log.co2.format(2)} kg", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
                         }
                     }
                 }
@@ -393,6 +480,28 @@ fun ProfileScreen(manager: CarbonManager) {
                 Text("Sync & Data", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(10.dp))
                 Button(onClick = { scope.launch { if (manager.hasAllPermissions()) Toast.makeText(context, "Data Synced!", Toast.LENGTH_SHORT).show() else healthPermissionLauncher.launch(manager.permissions) } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Icon(Icons.Default.Sync, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Sync Health Connect") }
+            }
+        }
+        Spacer(modifier = Modifier.height(20.dp))
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("App Theme", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val themes = listOf("Light", "Dark", "AMOLED", "System")
+                    themes.forEach { theme ->
+                        val isSelected = (prefs.getString("app_theme", "System") ?: "System") == theme
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                prefs.edit().putString("app_theme", theme).apply()
+                                (context as? Activity)?.recreate()
+                            },
+                            label = { Text(theme, fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
         }
         Spacer(modifier = Modifier.height(20.dp))

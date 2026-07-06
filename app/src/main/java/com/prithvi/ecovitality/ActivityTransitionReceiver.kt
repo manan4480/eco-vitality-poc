@@ -29,12 +29,15 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
                     prefs.edit().putString("last_activity", activityType).apply()
                     
-                    if (transitionType == "ENTER" && (activityType == "VEHICLE" || activityType == "BICYCLE")) {
-                        val serviceIntent = Intent(context, TrackingService::class.java)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            context.startForegroundService(serviceIntent)
-                        } else {
-                            context.startService(serviceIntent)
+                    if (transitionType == "ENTER") {
+                        prefs.edit().putBoolean("is_new_trip", true).apply()
+                        if (activityType == "VEHICLE" || activityType == "BICYCLE") {
+                            val serviceIntent = Intent(context, TrackingService::class.java)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
                         }
                     }
                 }
