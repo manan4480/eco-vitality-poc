@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -125,6 +126,62 @@ fun BottomNavigationBar(navController: NavController) {
 }
 
 @Composable
+fun VitalityRings(
+    xp: Int,
+    ecoScore: Int,
+    saved: Double,
+    produced: Double,
+    size: Dp = 240.dp,
+    strokeWidth: Dp = 14.dp,
+    showCenterIcon: Boolean = true
+) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
+        // XP Ring (Outer)
+        CircularProgressIndicator(
+            progress = { (xp / 500f).coerceIn(0f, 1f) },
+            modifier = Modifier.size(size),
+            color = Color(0xFFFBC02D), // Gold
+            strokeWidth = strokeWidth,
+            trackColor = Color(0xFFFBC02D).copy(alpha = 0.1f),
+            strokeCap = StrokeCap.Round
+        )
+        // Eco Score Ring
+        CircularProgressIndicator(
+            progress = { (ecoScore / 100f).coerceIn(0f, 1f) },
+            modifier = Modifier.size(size * 0.83f),
+            color = MaterialTheme.colorScheme.secondary,
+            strokeWidth = strokeWidth,
+            trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
+            strokeCap = StrokeCap.Round
+        )
+        // CO2 Saved Ring
+        CircularProgressIndicator(
+            progress = { (saved / 10.0).coerceIn(0.0, 1.0).toFloat() },
+            modifier = Modifier.size(size * 0.66f),
+            color = Color(0xFF4CAF50), // Eco Green
+            strokeWidth = strokeWidth,
+            trackColor = Color(0xFF4CAF50).copy(alpha = 0.1f),
+            strokeCap = StrokeCap.Round
+        )
+        // CO2 Produced Ring (Inner)
+        CircularProgressIndicator(
+            progress = { (produced / 5.0).coerceIn(0.0, 1.0).toFloat() },
+            modifier = Modifier.size(size * 0.5f),
+            color = MaterialTheme.colorScheme.error,
+            strokeWidth = strokeWidth,
+            trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+            strokeCap = StrokeCap.Round
+        )
+        
+        if (showCenterIcon) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Eco, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.13f))
+            }
+        }
+    }
+}
+
+@Composable
 fun DashboardScreen(manager: CarbonManager) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -171,54 +228,12 @@ fun DashboardScreen(manager: CarbonManager) {
         Text("Overview", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
         Spacer(modifier = Modifier.height(30.dp))
 
-        // Samsung Health Style Rings
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(260.dp)) {
-            // XP Ring (Outer)
-            CircularProgressIndicator(
-                progress = { (totalXp / 500f).coerceIn(0f, 1f) },
-                modifier = Modifier.size(240.dp),
-                color = Color(0xFFFBC02D), // Gold
-                strokeWidth = 14.dp,
-                trackColor = Color(0xFFFBC02D).copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
-            // Eco Score Ring
-            CircularProgressIndicator(
-                progress = { (overallEcoScore / 100f).coerceIn(0f, 1f) },
-                modifier = Modifier.size(200.dp),
-                color = MaterialTheme.colorScheme.secondary,
-                strokeWidth = 14.dp,
-                trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
-            // CO2 Saved Ring
-            CircularProgressIndicator(
-                progress = { (co2Saved / 10.0).coerceIn(0.0, 1.0).toFloat() },
-                modifier = Modifier.size(160.dp),
-                color = Color(0xFF4CAF50), // Eco Green
-                strokeWidth = 14.dp,
-                trackColor = Color(0xFF4CAF50).copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
-            // CO2 Produced Ring (Inner)
-            CircularProgressIndicator(
-                progress = { (co2Produced / 5.0).coerceIn(0.0, 1.0).toFloat() },
-                modifier = Modifier.size(120.dp),
-                color = MaterialTheme.colorScheme.error,
-                strokeWidth = 14.dp,
-                trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
-            
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Eco, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-                Text("Vitality", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            VitalityRings(totalXp, overallEcoScore, co2Saved, co2Produced)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
         
-        // Legend Grid (Replacing the old 2x2 grid)
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.height(180.dp),
@@ -469,14 +484,32 @@ fun HistoryScreen(manager: CarbonManager) {
         // XP Day Picker
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState(initial = 1000)), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             days.forEach { date ->
-                var dayXp by remember(date, refreshTrigger) { mutableStateOf(0) }
+                var dayStats by remember(date, refreshTrigger) { 
+                    mutableStateOf(Triple(0, 0, Triple(0.0, 0.0, 100))) 
+                }
+                
                 LaunchedEffect(date, refreshTrigger) {
                     if (manager.hasAllPermissions()) {
                         val insight = manager.getDailyHealthData(date)
-                        val tripXp = manager.getHistory().filter { it.date == date.format(DateTimeFormatter.ISO_DATE) }.sumOf { 
+                        val dateStr = date.format(DateTimeFormatter.ISO_DATE)
+                        val todayHistory = manager.getHistory().filter { it.date == dateStr }
+                        
+                        val tripXp = todayHistory.sumOf { 
                             if(it.type in listOf("Bike", "Walk")) it.distance * 15 else if(it.type in listOf("Bus", "Train")) it.distance * 5 else 0.0
                         }.toInt()
-                        dayXp = insight.xp + tripXp
+                        
+                        val totalXp = insight.xp + tripXp
+                        val totalSaved = insight.totalCarbon + todayHistory.filter { it.type in listOf("Bike", "Walk", "Bus", "Train") }.sumOf { 
+                            when(it.type) {
+                                "Bus" -> it.distance * (manager.CAR_FACTOR - manager.BUS_FACTOR)
+                                "Train" -> it.distance * (manager.CAR_FACTOR - manager.TRAIN_FACTOR)
+                                "Bike", "Walk" -> it.distance * manager.CAR_FACTOR
+                                else -> 0.0
+                            }
+                        }
+                        val totalProduced = todayHistory.filter { it.type in listOf("Car", "Motorbike", "Bus", "Train") }.sumOf { it.co2 }
+                        
+                        dayStats = Triple(totalXp, 100 /* Simplified score */, Triple(totalSaved, totalProduced, 100))
                     }
                 }
                 
@@ -484,14 +517,22 @@ fun HistoryScreen(manager: CarbonManager) {
                     Text(date.dayOfWeek.name.take(1), fontSize = 12.sp, color = if(date == selectedDate) MaterialTheme.colorScheme.primary else Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .background(if (date == selectedDate) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, CircleShape)
-                            .clip(CircleShape)
-                            .background(if (date == selectedDate) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent),
+                        modifier = Modifier.size(50.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("${dayXp}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(dayXp > 0) MaterialTheme.colorScheme.primary else Color.Gray)
+                        if (date == selectedDate) {
+                            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer, CircleShape).clip(CircleShape))
+                        }
+                        VitalityRings(
+                            xp = dayStats.first,
+                            ecoScore = dayStats.third.third,
+                            saved = dayStats.third.first,
+                            produced = dayStats.third.second,
+                            size = 40.dp,
+                            strokeWidth = 3.dp,
+                            showCenterIcon = false
+                        )
+                        Text("${dayStats.first}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if(date == selectedDate) MaterialTheme.colorScheme.primary else Color.Gray)
                     }
                 }
             }
@@ -500,31 +541,43 @@ fun HistoryScreen(manager: CarbonManager) {
         Spacer(modifier = Modifier.height(30.dp))
 
         if (dailyInsight != null) {
+            val dateStr = selectedDate.format(DateTimeFormatter.ISO_DATE)
+            val todayHistory = manager.getHistory().filter { it.date == dateStr }
+            val tripXp = todayHistory.sumOf { 
+                if(it.type in listOf("Bike", "Walk")) it.distance * 15 else if(it.type in listOf("Bus", "Train")) it.distance * 5 else 0.0
+            }.toInt()
+            
+            val totalXpForDay = dailyInsight!!.xp + tripXp
+            val totalSavedForDay = dailyInsight!!.totalCarbon + todayHistory.filter { it.type in listOf("Bike", "Walk", "Bus", "Train") }.sumOf { 
+                when(it.type) {
+                    "Bus" -> it.distance * (manager.CAR_FACTOR - manager.BUS_FACTOR)
+                    "Train" -> it.distance * (manager.CAR_FACTOR - manager.TRAIN_FACTOR)
+                    "Bike", "Walk" -> it.distance * manager.CAR_FACTOR
+                    else -> 0.0
+                }
+            }
+            val totalProducedForDay = todayHistory.filter { it.type in listOf("Car", "Motorbike", "Bus", "Train") }.sumOf { it.co2 }
+
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMM")), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp)) {
-                        CircularProgressIndicator(
-                            progress = { (dailyInsight!!.dailySteps / 10000f).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxSize(),
-                            strokeWidth = 10.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surface
-                        )
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("${dailyInsight!!.dailySteps}", fontWeight = FontWeight.Bold, fontSize = 24.sp)
-                            Text("Steps", fontSize = 12.sp, color = Color.Gray)
-                        }
-                    }
+                    VitalityRings(
+                        xp = totalXpForDay,
+                        ecoScore = 100, // Placeholder
+                        saved = totalSavedForDay,
+                        produced = totalProducedForDay,
+                        size = 180.dp,
+                        strokeWidth = 12.dp
+                    )
                     
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        ActivityMetric("Dist", "${dailyInsight!!.dailyDistance.format(2)} km", Icons.Default.Map)
-                        ActivityMetric("Health XP", "${dailyInsight!!.xp}", Icons.Default.Bolt)
-                        ActivityMetric("CO2 Sav", "${dailyInsight!!.totalCarbon.format(2)} kg", Icons.Default.Nature)
+                        ActivityMetric("Steps", "${dailyInsight!!.dailySteps}", Icons.Default.DirectionsWalk)
+                        ActivityMetric("Total XP", "${totalXpForDay}", Icons.Default.Bolt)
+                        ActivityMetric("CO2 Saved", "${totalSavedForDay.format(2)} kg", Icons.Default.Nature)
                     }
                 }
             }
