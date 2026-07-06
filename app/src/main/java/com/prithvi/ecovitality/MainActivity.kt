@@ -239,20 +239,27 @@ fun DashboardScreen(manager: CarbonManager) {
             listOf("Car", "Motorbike", "Bus", "Train", "Bike", "Walk").forEach { type ->
                 newStats[type] = todayTrips.filter { it.type == type }.sumOf { it.distance }
             }
+            
             newStats["Car"] = (newStats["Car"] ?: 0.0) + autoCar
             newStats["Bike"] = (newStats["Bike"] ?: 0.0) + autoBike
-            stats = newStats
 
             if (manager.hasAllPermissions()) {
                 val todayHealth = manager.getDailyHealthData(LocalDate.now())
                 val liveWalk = manager.getLiveDistanceKm()
-                val totalWalk = (newStats["Walk"] ?: 0.0) + todayHealth.dailyDistance + liveWalk
+                val totalWalkValue = (newStats["Walk"] ?: 0.0) + todayHealth.dailyDistance + liveWalk
                 
-                totalXp = manager.getTotalXP(totalWalk, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-                overallEcoScore = manager.getOverallEcoScore(totalWalk, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
+                // Map the internal "Walk" key to the UI "Walking" key
+                newStats["Walking"] = totalWalkValue
+                
+                totalXp = manager.getTotalXP(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
+                overallEcoScore = manager.getOverallEcoScore(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
                 co2Produced = manager.getTotalGeneratedCO2(newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-                co2Saved = manager.getTotalSavedCO2(totalWalk, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
+                co2Saved = manager.getTotalSavedCO2(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
+            } else {
+                newStats["Walking"] = newStats["Walk"] ?: 0.0
             }
+            
+            stats = newStats
             delay(5000)
         }
     }
