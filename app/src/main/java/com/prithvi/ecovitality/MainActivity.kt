@@ -16,13 +16,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,6 +84,7 @@ class MainActivity : ComponentActivity() {
                                 composable("dashboard") { DashboardScreen(manager) }
                                 composable("track") { TrackScreen(manager) }
                                 composable("history") { HistoryScreen(manager) }
+                                composable("rewards") { RewardsScreen(manager) }
                                 composable("profile") { ProfileScreen(manager) }
                             }
                         }
@@ -97,6 +101,7 @@ fun BottomNavigationBar(navController: NavController) {
         Triple("dashboard", "Dashboard", Icons.Default.Dashboard),
         Triple("track", "Track", Icons.Default.AddLocationAlt),
         Triple("history", "History", Icons.Default.History),
+        Triple("rewards", "Rewards", Icons.Default.CardGiftcard),
         Triple("profile", "Profile", Icons.Default.Person)
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -610,6 +615,108 @@ fun HistoryScreen(manager: CarbonManager) {
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+data class Reward(val id: String, val title: String, val description: String, val requiredXp: Int, val icon: ImageVector, val color: Color)
+
+@Composable
+fun RewardsScreen(manager: CarbonManager) {
+    var cumulativeXp by remember { mutableIntStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    val rewards = listOf(
+        Reward("1", "Amazon Voucher", "$5 Shopping Credit", 1000, Icons.Default.ShoppingBag, Color(0xFFFF9900)),
+        Reward("2", "Steam Voucher", "$10 Wallet Code", 2500, Icons.Default.Games, Color(0xFF171A21)),
+        Reward("3", "Fitbit Air", "Premium Fitness Tracker", 10000, Icons.Default.Watch, Color(0xFF00B0B9)),
+        Reward("4", "Eco Tablet", "10-inch Sustainable Tablet", 25000, Icons.Default.TabletAndroid, Color(0xFF4CAF50))
+    )
+
+    LaunchedEffect(Unit) {
+        if (manager.hasAllPermissions()) {
+            val days = (0..13).map { LocalDate.now().minusDays(it.toLong()) }
+            var total = 0
+            days.forEach { date ->
+                val insight = manager.getDailyHealthData(date)
+                val tripXp = manager.getHistory().filter { it.date == date.format(DateTimeFormatter.ISO_DATE) }.sumOf { 
+                    if(it.type in listOf("Bike", "Walk")) it.distance * 15 else if(it.type in listOf("Bus", "Train")) it.distance * 5 else 0.0
+                }.toInt()
+                total += (insight.xp + tripXp)
+            }
+            cumulativeXp = total
+        }
+        isLoading = false
+    }
+
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize()) {
+        Text("Rewards", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Spacer(modifier = Modifier.height(10.dp))
+        
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Total Vitality XP", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 14.sp)
+                    Text("$cumulativeXp XP", fontWeight = FontWeight.Bold, fontSize = 28.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Icon(Icons.Default.Stars, contentDescription = null, tint = Color(0xFFFBC02D), modifier = Modifier.size(48.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Available Rewards", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(15.dp))
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(rewards) { reward ->
+                    RewardCard(reward, cumulativeXp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RewardCard(reward: Reward, currentXp: Int) {
+    val progress = (currentXp.toFloat() / reward.requiredXp).coerceIn(0f, 1f)
+    val isUnlocked = currentXp >= reward.requiredXp
+    val animatedProgress by animateFloatAsState(targetValue = progress, label = "progress")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = if(isUnlocked) androidx.compose.foundation.BorderStroke(2.dp, reward.color) else null
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(50.dp).background(reward.color.copy(alpha = 0.1f), CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(reward.icon, contentDescription = null, tint = reward.color, modifier = Modifier.size(28.dp))
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(reward.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(reward.description, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                }
+                if (isUnlocked) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = "Unlocked", tint = Color(0xFF4CAF50))
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if(isUnlocked) "Ready to Redeem!" else "${reward.requiredXp - currentXp} XP to go", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text("${(progress * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                color = if (isUnlocked) reward.color else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surface
+            )
+        }
     }
 }
 
