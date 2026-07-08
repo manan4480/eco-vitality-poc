@@ -269,6 +269,38 @@ fun DashboardScreen(manager: CarbonManager) {
         Text("Overview", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
         Spacer(modifier = Modifier.height(30.dp))
 
+        var showInstallBanner by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            val status = androidx.health.connect.client.HealthConnectClient.getSdkStatus(context)
+            if (status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED || 
+                status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE) {
+                showInstallBanner = true
+            }
+        }
+
+        if (showInstallBanner) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Health Connect Missing", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("Install to track steps and history.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                    Button(
+                        onClick = { context.startActivity(manager.getInstallIntent()) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Install", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             VitalityRings(totalXp, overallEcoScore, co2Saved, co2Produced)
         }

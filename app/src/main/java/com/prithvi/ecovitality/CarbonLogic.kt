@@ -69,8 +69,15 @@ class CarbonManager(val context: Context) : SensorEventListener {
     )
 
     fun startAutoTracking() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
-            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACTIVITY_RECOGNITION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        val permissions = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            permissions.add(android.Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+        
+        val allGranted = permissions.all {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (!allGranted) return
 
         val transitions = mutableListOf<ActivityTransition>()
         listOf(DetectedActivity.IN_VEHICLE, DetectedActivity.WALKING, DetectedActivity.ON_BICYCLE).forEach { activity ->
@@ -78,7 +85,9 @@ class CarbonManager(val context: Context) : SensorEventListener {
             transitions.add(ActivityTransition.Builder().setActivityType(activity).setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT).build())
         }
 
-        client.requestActivityTransitionUpdates(ActivityTransitionRequest(transitions), pendingIntent)
+        try {
+            client.requestActivityTransitionUpdates(ActivityTransitionRequest(transitions), pendingIntent)
+        } catch (e: Exception) { Log.e("CarbonManager", "Failed to start auto tracking", e) }
     }
 
     var liveStepsSinceStart = 0.0
@@ -189,12 +198,18 @@ class CarbonManager(val context: Context) : SensorEventListener {
 
     suspend fun hasAllPermissions(): Boolean {
         return try {
+            val availability = HealthConnectClient.getSdkStatus(context)
+            if (availability != HealthConnectClient.SDK_AVAILABLE) return false
             val client = HealthConnectClient.getOrCreate(context)
             client.permissionController.getGrantedPermissions().containsAll(permissions)
         } catch (e: Exception) { false }
     }
 
     suspend fun getDailyHealthData(date: LocalDate): CarbonInsight {
+        val availability = HealthConnectClient.getSdkStatus(context)
+        if (availability != HealthConnectClient.SDK_AVAILABLE) {
+            return CarbonInsight(0.0, 0, 0.0, 0, insightMessage = "Health Connect app required")
+        }
         if (!hasAllPermissions()) return CarbonInsight(0.0, 0, 0.0, 0, needsPermissions = true)
         val client = HealthConnectClient.getOrCreate(context)
         val startTime = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
