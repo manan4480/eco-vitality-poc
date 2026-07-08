@@ -71,10 +71,21 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val prefs = remember { context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE) }
             var themeMode by remember { mutableStateOf(prefs.getString("app_theme", "System") ?: "System") }
+            var showOnboarding by remember { mutableStateOf(prefs.getBoolean("show_onboarding_v2", true)) }
 
             EcoVitalityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 val manager = remember { CarbonManager(this) }
+                
+                if (showOnboarding) {
+                    OnboardingDialog(
+                        manager = manager,
+                        onDismiss = { 
+                            showOnboarding = false
+                            prefs.edit().putBoolean("show_onboarding_v2", false).apply()
+                        }
+                    )
+                }
                 var profileImageUri by remember { 
                     mutableStateOf(
                         prefs.getString("currentImage", null)?.let { Uri.parse(it) } ?: 
@@ -321,6 +332,12 @@ fun DashboardScreen(manager: CarbonManager) {
         }
 
         Spacer(modifier = Modifier.height(30.dp))
+        Text("Reference Benchmarks", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(15.dp))
+        
+        BenchmarkSection()
+
+        Spacer(modifier = Modifier.height(30.dp))
         Text("Travel Breakdown (Today)", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(15.dp))
         
@@ -378,38 +395,91 @@ fun LegendItem(label: String, value: String, color: Color, icon: ImageVector) {
 fun TrackScreen(manager: CarbonManager) {
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
-
-    var carDist by remember { mutableDoubleStateOf(manager.getManualDistance("Car")) }
-    var busDist by remember { mutableDoubleStateOf(manager.getManualDistance("Bus")) }
-    var trainDist by remember { mutableDoubleStateOf(manager.getManualDistance("Train")) }
-    var bikeDist by remember { mutableDoubleStateOf(manager.getManualDistance("Bike")) }
-    var walkDist by remember { mutableDoubleStateOf(manager.getManualDistance("Walk")) }
-    var motorbikeDist by remember { mutableDoubleStateOf(manager.getManualDistance("Motorbike")) }
+    
+    var selectedMode by remember { mutableStateOf("Car") }
+    var distanceInput by remember { mutableStateOf("") }
+    
+    val modes = listOf(
+        Triple("Car", Icons.Default.DirectionsCar, MaterialTheme.colorScheme.error),
+        Triple("Motorbike", Icons.Default.TwoWheeler, Color(0xFF9C27B0)),
+        Triple("Bus", Icons.Default.DirectionsBus, MaterialTheme.colorScheme.secondary),
+        Triple("Train", Icons.Default.Train, MaterialTheme.colorScheme.primary),
+        Triple("Bike", Icons.AutoMirrored.Filled.DirectionsBike, MaterialTheme.colorScheme.tertiary),
+        Triple("Walk", Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFF4CAF50))
+    )
 
     Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
         Text("Track Activity", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
         Spacer(modifier = Modifier.height(30.dp))
+        
         LiveTripTracker(manager)
 
         Spacer(modifier = Modifier.height(40.dp))
-        Text("Manual Entry", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(15.dp))
+        Text("Manual Log", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Log a completed trip by entering the details below.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        Spacer(modifier = Modifier.height(20.dp))
         
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.height(380.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            userScrollEnabled = false
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
-            item { TransportInput("Car", carDist) { carDist = it; manager.saveManualDistance("Car", it); manager.saveToHistory("Car", it) } }
-            item { TransportInput("Motorbike", motorbikeDist) { motorbikeDist = it; manager.saveManualDistance("Motorbike", it); manager.saveToHistory("Motorbike", it) } }
-            item { TransportInput("Bus", busDist) { busDist = it; manager.saveManualDistance("Bus", it); manager.saveToHistory("Bus", it) } }
-            item { TransportInput("Train", trainDist) { trainDist = it; manager.saveManualDistance("Train", it); manager.saveToHistory("Train", it) } }
-            item { TransportInput("Bike", bikeDist) { bikeDist = it; manager.saveManualDistance("Bike", it); manager.saveToHistory("Bike", it) } }
-            item { TransportInput("Walk", walkDist) { walkDist = it; manager.saveManualDistance("Walk", it); manager.saveToHistory("Walk", it) } }
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Select Transport Mode", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    modes.forEach { (mode, icon, color) ->
+                        val isSelected = selectedMode == mode
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedMode = mode },
+                            label = { Text(mode) },
+                            leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if(isSelected) MaterialTheme.colorScheme.onPrimaryContainer else color) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text("Distance (km)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = distanceInput,
+                    onValueChange = { if(it.isEmpty() || it.toDoubleOrNull() != null) distanceInput = it },
+                    placeholder = { Text("e.g. 5.5") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Button(
+                    onClick = {
+                        val dist = distanceInput.toDoubleOrNull() ?: 0.0
+                        if (dist > 0) {
+                            manager.saveToHistory(selectedMode, dist)
+                            distanceInput = ""
+                            Toast.makeText(context, "Trip logged to history!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Please enter a valid distance", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add Trip to History", fontWeight = FontWeight.Bold)
+                }
+            }
         }
+
         Spacer(modifier = Modifier.height(20.dp))
     }
 }
@@ -488,11 +558,6 @@ fun MetricStatusCard(label: String, value: String, icon: ImageVector, bgColor: C
             Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint, textAlign = TextAlign.Center)
         }
     }
-}
-
-@Composable
-fun TransportInput(label: String, value: Double, modifier: Modifier = Modifier, onValueChange: (Double) -> Unit) {
-    OutlinedTextField(value = if(value == 0.0) "" else value.toString(), onValueChange = { onValueChange(it.toDoubleOrNull() ?: 0.0) }, label = { Text(label, fontSize = 12.sp) }, modifier = modifier, singleLine = true, shape = RoundedCornerShape(12.dp))
 }
 
 @Composable
@@ -664,25 +729,113 @@ fun HistoryScreen(manager: CarbonManager) {
             Text("No logged trips for this day.", color = Color.Gray, modifier = Modifier.padding(vertical = 20.dp), textAlign = TextAlign.Center)
         } else {
             history.forEach { log ->
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selectedLog = log; showEditDialog = true }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val icon = when(log.type) { "Car" -> Icons.Default.DirectionsCar; "Motorbike" -> Icons.Default.TwoWheeler; "Bus" -> Icons.Default.DirectionsBus; "Train" -> Icons.Default.Train; "Bike" -> Icons.AutoMirrored.Filled.DirectionsBike; "Walk" -> Icons.AutoMirrored.Filled.DirectionsWalk; else -> Icons.AutoMirrored.Filled.DirectionsRun }
-                        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) { 
-                            Text(log.type, fontWeight = FontWeight.Bold) 
-                            Text("${log.distance.format(1)} km", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selectedLog = log; showEditDialog = true }, 
+                    shape = RoundedCornerShape(16.dp), 
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val icon = when(log.type) { 
+                                "Car" -> Icons.Default.DirectionsCar
+                                "Motorbike" -> Icons.Default.TwoWheeler
+                                "Bus" -> Icons.Default.DirectionsBus
+                                "Train" -> Icons.Default.Train
+                                "Bike" -> Icons.AutoMirrored.Filled.DirectionsBike
+                                "Walk" -> Icons.AutoMirrored.Filled.DirectionsWalk
+                                else -> Icons.AutoMirrored.Filled.DirectionsRun 
+                            }
+                            Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) { 
+                                Text(log.type, fontWeight = FontWeight.Bold, fontSize = 16.sp) 
+                                if (log.startTime.isNotEmpty()) {
+                                    Text("${log.startTime} - ${log.endTime} (${log.durationMinutes} mins)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.End) { 
+                                Text("${log.distance.format(1)} km", fontWeight = FontWeight.Bold)
+                                Text("${log.xpEarned} XP", fontSize = 12.sp, color = Color(0xFFFBC02D), fontWeight = FontWeight.Bold)
+                            }
                         }
-                        Column(horizontalAlignment = Alignment.End) { 
-                            val label = if(log.type in listOf("Bike", "Walk")) "Saved" else "Produced"
-                            Text("${log.co2.format(2)} kg", fontWeight = FontWeight.Bold)
-                            Text(label, fontSize = 10.sp, color = Color.Gray)
+                        
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            val isEco = log.type in listOf("Bike", "Walk", "Bus", "Train")
+                            val impactColor = if (log.ecoScoreImpact >= 0) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Eco, contentDescription = null, tint = impactColor, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Eco Impact: ${if(log.ecoScoreImpact > 0) "+" else ""}${log.ecoScoreImpact}", fontSize = 12.sp, color = impactColor, fontWeight = FontWeight.Medium)
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Co2, contentDescription = null, tint = if(isEco) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("${if(isEco) "Saved" else "Produced"}: ${log.co2.format(2)} kg", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(30.dp))
+        Text("Reference Benchmarks", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(15.dp))
+        
+        BenchmarkSection()
+        
+        Spacer(modifier = Modifier.height(30.dp))
+        Text("Legend", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(15.dp))
+        
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.height(180.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            userScrollEnabled = false
+        ) {
+            item { LegendItem("Total XP", "Earned from eco-trips & steps", Color(0xFFFBC02D), Icons.Default.Star) }
+            item { LegendItem("Eco Score", "Weekly sustainability rating", MaterialTheme.colorScheme.secondary, Icons.Default.Eco) }
+            item { LegendItem("CO2 Saved", "Avoided vs driving a car", Color(0xFF4CAF50), Icons.Default.Nature) }
+            item { LegendItem("Produced", "Emissions from motorized trips", MaterialTheme.colorScheme.error, Icons.Default.Co2) }
+        }
+        
         Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun BenchmarkSection() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        BenchmarkItem("Avg. Daily Commute CO2", "12.6 kg", "Global Average", MaterialTheme.colorScheme.error)
+        BenchmarkItem("Avg. Daily Walking", "1.5 km", "Health Recommendation", Color(0xFF4CAF50))
+        BenchmarkItem("Avg. Transport Footprint", "25%", "of Individual Total", MaterialTheme.colorScheme.secondary)
+    }
+}
+
+@Composable
+fun BenchmarkItem(label: String, value: String, source: String, color: Color) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(source, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+            }
+            Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = color)
+        }
     }
 }
 
@@ -868,6 +1021,19 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 Button(onClick = { scope.launch { if (manager.hasAllPermissions()) Toast.makeText(context, "Data Synced!", Toast.LENGTH_SHORT).show() else healthPermissionLauncher.launch(manager.permissions) } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Sync, contentDescription = null); Spacer(modifier = Modifier.width(8.dp)); Text("Sync Health Connect") }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { 
+                        prefs.edit().putBoolean("show_onboarding_v2", true).apply()
+                        (context as Activity).recreate() 
+                    }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(12.dp)
+                ) { 
+                    Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Show Tutorial") 
+                }
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
@@ -904,3 +1070,81 @@ fun ProfileOption(icon: ImageVector, title: String) {
 }
 
 fun Double.format(digits: Int) = "%.${digits}f".format(this)
+
+@Composable
+fun OnboardingDialog(manager: CarbonManager, onDismiss: () -> Unit) {
+    var currentStep by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    
+    val steps = listOf(
+        "Welcome to EcoVitality! Track your carbon footprint and earn rewards for sustainable travel.",
+        "Dashboard: View your real-time stats, XP, and Eco Score rings.",
+        "Track: Log trips manually or use Auto-Tracking for seamless updates.",
+        "History: Every trip is saved independently with details like duration and CO2 impact.",
+        "XP & Rewards: Earn XP for eco-friendly choices and unlock real-world rewards!",
+        "Health Connect: We use Health Connect to sync your steps and walking distance automatically."
+    )
+    
+    val icons = listOf(
+        Icons.Default.Eco,
+        Icons.Default.Dashboard,
+        Icons.Default.AddLocationAlt,
+        Icons.Default.History,
+        Icons.Default.CardGiftcard,
+        Icons.Default.Favorite
+    )
+
+    AlertDialog(
+        onDismissRequest = { },
+        title = { 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icons[currentStep], contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Step ${currentStep + 1} of ${steps.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.size(100.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(icons[currentStep], contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(steps[currentStep], textAlign = TextAlign.Center, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                
+                if (currentStep == steps.size - 1) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { 
+                            val status = androidx.health.connect.client.HealthConnectClient.getSdkStatus(context)
+                            if (status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED || 
+                                status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE) {
+                                context.startActivity(manager.getInstallIntent())
+                            } else {
+                                Toast.makeText(context, "Health Connect is ready!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Check/Install Health Connect", fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (currentStep < steps.size - 1) currentStep++
+                else onDismiss()
+            }, shape = RoundedCornerShape(12.dp)) {
+                Text(if (currentStep < steps.size - 1) "Next" else "Get Started")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Skip")
+            }
+        },
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surface
+    )
+}

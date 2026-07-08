@@ -34,7 +34,12 @@ data class TransportLog(
     val type: String = "",
     val distance: Double = 0.0,
     val co2: Double = 0.0,
-    val id: String = ""
+    val id: String = "",
+    val startTime: String = "",
+    val endTime: String = "",
+    val durationMinutes: Long = 0,
+    val xpEarned: Int = 0,
+    val ecoScoreImpact: Int = 0
 )
 
 data class CarbonInsight(
@@ -98,6 +103,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
     var isManualTripActive = mutableStateOf(false)
     var manualTripType = mutableStateOf("Car")
     var manualTripDistance = mutableDoubleStateOf(0.0)
+    private var manualTripStartTimeMillis = 0L
 
     init {
         stepSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
@@ -167,6 +173,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
         manualTripType.value = type
         manualTripDistance.doubleValue = 0.0
         lastKnownLocation = null
+        manualTripStartTimeMillis = System.currentTimeMillis()
     }
 
     fun stopManualTrip() {
@@ -176,7 +183,13 @@ class CarbonManager(val context: Context) : SensorEventListener {
             val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
             val key = "manual_${type.lowercase()}_km"
             prefs.edit().putFloat(key, prefs.getFloat(key, 0f) + dist.toFloat()).apply()
-            saveToHistory(type, dist)
+            
+            val durationMins = (System.currentTimeMillis() - manualTripStartTimeMillis) / 60000
+            val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+            val endTime = java.time.LocalTime.now()
+            val startTime = endTime.minusMinutes(durationMins)
+            
+            saveToHistory(type, dist, startTime.format(timeFormatter), endTime.format(timeFormatter), durationMins)
             isManualTripActive.value = false
             syncToCloud()
         }
@@ -240,39 +253,60 @@ class CarbonManager(val context: Context) : SensorEventListener {
     fun calculateTrainCarbon(km: Double) = km * TRAIN_FACTOR
     fun calculateMotorBikeCarbon(km: Double) = km * MOTORBIKE_FACTOR
 
-    fun saveToHistory(type: String, dist: Double) {
+    fun calculateTripXP(type: String, dist: Double): Int {
+        val baseXP = when(type) {
+            "Walk", "Bike" -> dist * 20
+            "Bus", "Train" -> dist * 10
+            "Motorbike" -> dist * 2
+            else -> dist * 1
+        }
+        val co2Saved = if (type in listOf("Walk", "Bike", "Bus", "Train")) {
+            val em = when(type) {
+                "Bus" -> (CAR_FACTOR - BUS_FACTOR) * dist
+                "Train" -> (CAR_FACTOR - TRAIN_FACTOR) * dist
+                else -> CAR_FACTOR * dist
+            }
+            em.coerceAtLeast(0.0)
+        } else 0.0
+        
+        val co2Bonus = (co2Saved * 5).toInt()
+        return (baseXP + co2Bonus).toInt()
+    }
+
+    fun calculateTripEcoScoreImpact(type: String, dist: Double): Int {
+        return when(type) {
+            "Walk", "Bike" -> (dist * 5).toInt().coerceIn(1, 10)
+            "Bus", "Train" -> (dist * 2).toInt().coerceIn(1, 5)
+            "Motorbike" -> -((dist * 2).toInt().coerceIn(1, 5))
+            "Car" -> -((dist * 5).toInt().coerceIn(1, 10))
+            else -> 0
+        }
+    }
+
+    fun saveToHistory(
+        type: String, 
+        dist: Double, 
+        startTime: String = "", 
+        endTime: String = "", 
+        durationMinutes: Long = 0
+    ) {
         val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
         val date = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
         val history = prefs.getStringSet("history_logs", emptySet())?.toMutableSet() ?: mutableSetOf()
         
-        val isNewTrip = prefs.getBoolean("is_new_trip", false)
-        val existingEntry = if (isNewTrip) null else history.filter { it.startsWith("$date|$type|") }.lastOrNull()
-
-        if (existingEntry != null) {
-            val parts = existingEntry.split("|")
-            val currentDist = parts[2].toDouble()
-            history.remove(existingEntry)
-            val newDist = currentDist + dist
-            val co2 = when(type) { 
-                "Car" -> calculateCarCarbon(newDist)
-                "Bus" -> calculateBusCarbon(newDist)
-                "Train" -> calculateTrainCarbon(newDist)
-                "Motorbike" -> calculateMotorBikeCarbon(newDist)
-                else -> 0.0 
-            }
-            val id = parts.getOrNull(4) ?: System.currentTimeMillis().toString()
-            history.add("$date|$type|$newDist|$co2|$id")
-        } else {
-            val co2 = when(type) { 
-                "Car" -> calculateCarCarbon(dist)
-                "Bus" -> calculateBusCarbon(dist)
-                "Train" -> calculateTrainCarbon(dist)
-                "Motorbike" -> calculateMotorBikeCarbon(dist)
-                else -> 0.0 
-            }
-            history.add("$date|$type|$dist|$co2|${System.currentTimeMillis()}")
-            if (isNewTrip) prefs.edit().putBoolean("is_new_trip", false).apply()
+        val co2 = when(type) { 
+            "Car" -> calculateCarCarbon(dist)
+            "Bus" -> calculateBusCarbon(dist)
+            "Train" -> calculateTrainCarbon(dist)
+            "Motorbike" -> calculateMotorBikeCarbon(dist)
+            else -> 0.0 
         }
+        
+        val xp = calculateTripXP(type, dist)
+        val ecoImpact = calculateTripEcoScoreImpact(type, dist)
+        val id = System.currentTimeMillis().toString()
+        
+        history.add("$date|$type|$dist|$co2|$id|$startTime|$endTime|$durationMinutes|$xp|$ecoImpact")
         
         prefs.edit().putStringSet("history_logs", history).apply()
         syncToCloud()
@@ -282,7 +316,18 @@ class CarbonManager(val context: Context) : SensorEventListener {
         return context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE).getStringSet("history_logs", emptySet())?.mapNotNull {
             try { 
                 val p = it.split("|")
-                TransportLog(p[0], p[1], p[2].toDouble(), p[3].toDouble(), p.getOrNull(4) ?: "") 
+                TransportLog(
+                    date = p[0], 
+                    type = p[1], 
+                    distance = p[2].toDouble(), 
+                    co2 = p[3].toDouble(), 
+                    id = p[4],
+                    startTime = p.getOrNull(5) ?: "",
+                    endTime = p.getOrNull(6) ?: "",
+                    durationMinutes = p.getOrNull(7)?.toLong() ?: 0L,
+                    xpEarned = p.getOrNull(8)?.toInt() ?: 0,
+                    ecoScoreImpact = p.getOrNull(9)?.toInt() ?: 0
+                )
             } catch (e: Exception) { null }
         }?.sortedByDescending { it.id.ifEmpty { it.date } } ?: emptyList()
     }
@@ -325,7 +370,14 @@ class CarbonManager(val context: Context) : SensorEventListener {
             }
             history.remove(entry)
             val finalId = id.ifEmpty { System.currentTimeMillis().toString() }
-            history.add("${parts[0]}|$newType|$dist|$co2|$finalId")
+            
+            val startTime = parts.getOrNull(5) ?: ""
+            val endTime = parts.getOrNull(6) ?: ""
+            val duration = parts.getOrNull(7) ?: "0"
+            val xp = calculateTripXP(newType, dist)
+            val ecoImpact = calculateTripEcoScoreImpact(newType, dist)
+
+            history.add("${parts[0]}|$newType|$dist|$co2|$finalId|$startTime|$endTime|$duration|$xp|$ecoImpact")
             prefs.edit().putStringSet("history_logs", history).commit()
             syncToCloud()
         }
