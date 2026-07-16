@@ -6,16 +6,12 @@ plugins {
 
 android {
     namespace = "com.prithvi.ecovitality"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.prithvi.ecovitality"
-        minSdk = 34
-        targetSdk = 36
+        minSdk = 28
+        targetSdk = 34
         versionCode = 11
         versionName = "0.0.11-alpha"
 
