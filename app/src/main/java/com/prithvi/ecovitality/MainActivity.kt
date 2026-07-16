@@ -108,8 +108,10 @@ class MainActivity : ComponentActivity() {
                                 composable("history") { HistoryScreen(manager) }
                                 composable("rewards") { RewardsScreen(manager) }
                                 composable("digital_wellbeing") { DigitalWellbeingScreen(manager) }
+                                composable("help_support") { HelpSupportScreen(manager) }
+                                composable("about") { AboutScreen(manager) }
                                 composable("profile") { 
-                                    ProfileScreen(manager, profileImageUri) { newUri -> 
+                                    ProfileScreen(manager, profileImageUri, navController) { newUri ->
                                         profileImageUri = newUri 
                                     } 
                                 }
@@ -579,10 +581,10 @@ fun DigitalWellbeingScreen(manager: CarbonManager) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Analytics, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Digital Eco Score: ${summary.digitalEcoScore}/100", fontWeight = FontWeight.Medium)
+                        Text("Digital Impact", fontWeight = FontWeight.Medium)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Excessive phone use decreases your daily sustainability rating and applies an XP penalty of ${summary.digitalXpPenalty} XP.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    Text("Daily phone use applies an XP penalty of ${summary.digitalXpPenalty} XP.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                 }
             }
         }
@@ -924,9 +926,9 @@ fun HistoryScreen(manager: CarbonManager) {
             val totalXpForDay = dailyInsight!!.xp + tripXp
             val totalSavedForDay = dailyInsight!!.totalCarbon + todayHistory.filter { it.type in listOf("Bike", "Walk", "Bus", "Train") }.sumOf { 
                 when(it.type) {
-                    "Bus" -> it.distance * (manager.CAR_FACTOR - manager.BUS_FACTOR)
-                    "Train" -> it.distance * (manager.CAR_FACTOR - manager.TRAIN_FACTOR)
-                    "Bike", "Walk" -> it.distance * manager.CAR_FACTOR
+                    "Bus" -> it.distance * (manager.getCarFactor() - manager.BUS_FACTOR)
+                    "Train" -> it.distance * (manager.getCarFactor() - manager.TRAIN_FACTOR)
+                    "Bike", "Walk" -> it.distance * manager.getCarFactor()
                     else -> 0.0
                 }
             }
@@ -1182,7 +1184,7 @@ fun ActivityMetric(label: String, value: String, icon: ImageVector, tint: Color 
 }
 
 @Composable
-fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageChange: (Uri) -> Unit) {
+fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, navController: NavController, onProfileImageChange: (Uri) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
@@ -1304,8 +1306,12 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
         Spacer(modifier = Modifier.height(20.dp))
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(16.dp)) {
-                ProfileOption(Icons.AutoMirrored.Filled.Help, "Help & Support")
-                ProfileOption(Icons.Default.Info, "About EcoVitality")
+                ProfileOption(Icons.AutoMirrored.Filled.Help, "Help & Support") {
+                    navController.navigate("help_support")
+                }
+                ProfileOption(Icons.Default.Info, "About EcoVitality") {
+                    navController.navigate("about")
+                }
             }
         }
         Spacer(modifier = Modifier.height(40.dp))
@@ -1346,8 +1352,20 @@ fun GoalSlider(label: String, value: Float, min: Float, max: Float, unit: String
 }
 
 @Composable
-fun ProfileOption(icon: ImageVector, title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp)); Spacer(modifier = Modifier.width(16.dp)); Text(title, fontWeight = FontWeight.Medium); Spacer(modifier = Modifier.weight(1f)); Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline) }
+fun ProfileOption(icon: ImageVector, title: String, onClick: () -> Unit = {}) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically, 
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp)
+    ) { 
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(title, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline) 
+    }
 }
 
 fun Double.format(digits: Int) = "%.${digits}f".format(this)
@@ -1428,4 +1446,99 @@ fun OnboardingDialog(manager: CarbonManager, onDismiss: () -> Unit) {
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.surface
     )
+}
+
+@Composable
+fun HelpSupportScreen(manager: CarbonManager) {
+    val scrollState = rememberScrollState()
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
+        Text("Help & Support", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        SupportCard("FAQ", "Frequently asked questions about carbon tracking and rewards.", Icons.Default.QuestionAnswer)
+        SupportCard("Contact Us", "Reach out to our eco-support team at support@ecovitality.com", Icons.Default.Email)
+        SupportCard("Report a Bug", "Found a glitch? Let us know so we can fix it!", Icons.Default.BugReport)
+        SupportCard("Privacy Policy", "Read how we protect and manage your environmental data.", Icons.Default.PrivacyTip)
+        
+        Spacer(modifier = Modifier.height(40.dp))
+        Text("Need immediate assistance?", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(
+            onClick = { /* Open chat or email */ },
+            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text("Start Live Chat")
+        }
+    }
+}
+
+@Composable
+fun SupportCard(title: String, desc: String, icon: ImageVector) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
+fun AboutScreen(manager: CarbonManager) {
+    Column(
+        modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Default.Eco, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(100.dp))
+        Text("EcoVitality", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("Version 0.0.8-alpha", fontSize = 14.sp, color = Color.Gray)
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Text(
+            "Our Mission", 
+            fontWeight = FontWeight.Bold, 
+            fontSize = 20.sp, 
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Start
+        )
+        Text(
+            "EcoVitality was built to empower individuals to take control of their carbon footprint. By gamifying sustainable travel and digital wellness, we aim to make eco-friendly living rewarding and accessible for everyone.",
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 8.dp),
+            lineHeight = 22.sp
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            "The Team", 
+            fontWeight = FontWeight.Bold, 
+            fontSize = 20.sp, 
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Start
+        )
+        Text(
+            "Developed with passion by Prithvi and the environmental tech community. Special thanks to our beta testers and contributors.",
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 8.dp),
+            lineHeight = 22.sp
+        )
+        
+        Spacer(modifier = Modifier.height(40.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+        Text(
+            "\u00A9 2024 EcoVitality Project. All Rights Reserved.", 
+            fontSize = 12.sp, 
+            color = Color.Gray,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+    }
 }

@@ -301,9 +301,9 @@ class CarbonManager(val context: Context) : SensorEventListener {
         }
         val co2Saved = if (type in listOf("Walk", "Bike", "Bus", "Train")) {
             val em = when(type) {
-                "Bus" -> (CAR_FACTOR - BUS_FACTOR) * dist
-                "Train" -> (CAR_FACTOR - TRAIN_FACTOR) * dist
-                else -> CAR_FACTOR * dist
+                "Bus" -> (getCarFactor() - BUS_FACTOR) * dist
+                "Train" -> (getCarFactor() - TRAIN_FACTOR) * dist
+                else -> getCarFactor() * dist
             }
             em.coerceAtLeast(0.0)
         } else 0.0
@@ -484,17 +484,17 @@ class CarbonManager(val context: Context) : SensorEventListener {
         calculateMotorBikeCarbon(smb) + calculateCarCarbon(sc) + calculateBusCarbon(sb) + calculateTrainCarbon(st)
 
     suspend fun getTotalSavedCO2(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Double {
-        val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance } * CAR_FACTOR
+        val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance } * getCarFactor()
         val h = getHistory().sumOf {
             when(it.type) {
-                "Bike", "Walk" -> it.distance * CAR_FACTOR
-                "Bus" -> it.distance * (CAR_FACTOR - BUS_FACTOR)
-                "Train" -> it.distance * (CAR_FACTOR - TRAIN_FACTOR)
-                "Motorbike" -> it.distance * (CAR_FACTOR - MOTORBIKE_FACTOR)
+                "Bike", "Walk" -> it.distance * getCarFactor()
+                "Bus" -> it.distance * (getCarFactor() - BUS_FACTOR)
+                "Train" -> it.distance * (getCarFactor() - TRAIN_FACTOR)
+                "Motorbike" -> it.distance * (getCarFactor() - MOTORBIKE_FACTOR)
                 else -> 0.0
             }
         }
-        return health7 + h + (sw + sb) * CAR_FACTOR + sb2 * (CAR_FACTOR - BUS_FACTOR) + st * (CAR_FACTOR - TRAIN_FACTOR) + smb * (CAR_FACTOR - MOTORBIKE_FACTOR)
+        return health7 + h + (sw + sb) * getCarFactor() + sb2 * (getCarFactor() - BUS_FACTOR) + st * (getCarFactor() - TRAIN_FACTOR) + smb * (getCarFactor() - MOTORBIKE_FACTOR)
     }
 
     fun getInstallIntent() = Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("market://details?id=com.google.android.apps.healthdata"); putExtra("overlay", true); putExtra("callerId", context.packageName) }
