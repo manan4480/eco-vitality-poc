@@ -16,8 +16,8 @@ android {
         applicationId = "com.prithvi.ecovitality"
         minSdk = 34
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.03-alpha"
+        versionCode = 11
+        versionName = "0.0.11-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
