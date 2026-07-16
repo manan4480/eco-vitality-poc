@@ -10,12 +10,14 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,14 +97,17 @@ class MainActivity : ComponentActivity() {
                 
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Scaffold(
-                        bottomBar = { BottomNavigationBar(navController, profileImageUri) }
+                        topBar = { TopBar(navController, profileImageUri) },
+                        bottomBar = { BottomNavigationBar(navController) }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                            NavHost(navController = navController, startDestination = "dashboard") {
+                            NavHost(navController = navController, startDestination = "home") {
+                                composable("home") { HomeScreen(manager, navController) }
                                 composable("dashboard") { DashboardScreen(manager) }
                                 composable("track") { TrackScreen(manager) }
                                 composable("history") { HistoryScreen(manager) }
                                 composable("rewards") { RewardsScreen(manager) }
+                                composable("digital_wellbeing") { DigitalWellbeingScreen(manager) }
                                 composable("profile") { 
                                     ProfileScreen(manager, profileImageUri) { newUri -> 
                                         profileImageUri = newUri 
@@ -117,16 +122,64 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BottomNavigationBar(navController: NavController, profileImageUri: Uri?) {
+fun TopBar(navController: NavController, profileImageUri: Uri?) {
     val context = LocalContext.current
-    
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val isProfilePage = currentRoute == "profile"
+
+    TopAppBar(
+        title = { 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!isProfilePage) {
+                    Icon(Icons.Default.Eco, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(if (isProfilePage) "My Profile" else "EcoVitality", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
+        },
+        navigationIcon = {
+            if (isProfilePage) {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+        },
+        actions = {
+            if (!isProfilePage) {
+                IconButton(onClick = { navController.navigate("profile") }) {
+                    if (profileImageUri != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(profileImageUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Profile",
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(Icons.Default.AccountCircle, contentDescription = "Profile", modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+    )
+}
+
+@Composable
+fun BottomNavigationBar(navController: NavController) {
     val items = listOf(
-        Triple("dashboard", "Dashboard", Icons.Default.Dashboard),
+        Triple("home", "Home", Icons.Default.Home),
+        Triple("dashboard", "Impact", Icons.Default.Public),
         Triple("track", "Track", Icons.Default.AddLocationAlt),
         Triple("history", "History", Icons.Default.History),
-        Triple("rewards", "Rewards", Icons.Default.CardGiftcard),
-        Triple("profile", "Profile", Icons.Default.Person)
+        Triple("rewards", "Rewards", Icons.Default.CardGiftcard)
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -134,23 +187,7 @@ fun BottomNavigationBar(navController: NavController, profileImageUri: Uri?) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
         items.forEach { (route, label, icon) ->
             NavigationBarItem(
-                icon = { 
-                    if (route == "profile" && profileImageUri != null) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(profileImageUri)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = label,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(icon, contentDescription = label)
-                    }
-                },
+                icon = { Icon(icon, contentDescription = label) },
                 label = { Text(label, fontSize = 10.sp) },
                 selected = currentRoute == route,
                 onClick = {
@@ -173,36 +210,33 @@ fun BottomNavigationBar(navController: NavController, profileImageUri: Uri?) {
 @Composable
 fun VitalityRings(
     xp: Int,
-    ecoScore: Int,
     saved: Double,
     produced: Double,
     size: Dp = 240.dp,
     strokeWidth: Dp = 14.dp,
-    showCenterIcon: Boolean = true
+    showCenterIcon: Boolean = true,
+    xpTarget: Float = 500f,
+    savedTarget: Double = 10.0,
+    producedTarget: Double = 5.0
 ) {
+    val animatedXp by animateFloatAsState(targetValue = (xp / xpTarget).coerceIn(0f, 1f), label = "xp")
+    val animatedSaved by animateFloatAsState(targetValue = (saved / savedTarget).coerceIn(0.0, 1.0).toFloat(), label = "saved")
+    val animatedProduced by animateFloatAsState(targetValue = (produced / producedTarget).coerceIn(0.0, 1.0).toFloat(), label = "produced")
+
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
         // XP Ring (Outer)
         CircularProgressIndicator(
-            progress = { (xp / 500f).coerceIn(0f, 1f) },
+            progress = { animatedXp },
             modifier = Modifier.size(size),
             color = Color(0xFFFBC02D), // Gold
             strokeWidth = strokeWidth,
             trackColor = Color(0xFFFBC02D).copy(alpha = 0.1f),
             strokeCap = StrokeCap.Round
         )
-        // Eco Score Ring
-        CircularProgressIndicator(
-            progress = { (ecoScore / 100f).coerceIn(0f, 1f) },
-            modifier = Modifier.size(size * 0.83f),
-            color = MaterialTheme.colorScheme.secondary,
-            strokeWidth = strokeWidth,
-            trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
-            strokeCap = StrokeCap.Round
-        )
         // CO2 Saved Ring
         CircularProgressIndicator(
-            progress = { (saved / 10.0).coerceIn(0.0, 1.0).toFloat() },
-            modifier = Modifier.size(size * 0.66f),
+            progress = { animatedSaved },
+            modifier = Modifier.size(size * 0.75f),
             color = Color(0xFF4CAF50), // Eco Green
             strokeWidth = strokeWidth,
             trackColor = Color(0xFF4CAF50).copy(alpha = 0.1f),
@@ -210,7 +244,7 @@ fun VitalityRings(
         )
         // CO2 Produced Ring (Inner)
         CircularProgressIndicator(
-            progress = { (produced / 5.0).coerceIn(0.0, 1.0).toFloat() },
+            progress = { animatedProduced },
             modifier = Modifier.size(size * 0.5f),
             color = MaterialTheme.colorScheme.error,
             strokeWidth = strokeWidth,
@@ -227,149 +261,220 @@ fun VitalityRings(
 }
 
 @Composable
-fun DashboardScreen(manager: CarbonManager) {
+fun HomeScreen(manager: CarbonManager, navController: NavController) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
+    var summary by remember { mutableStateOf(StatsSummary()) }
+    var todayHistory by remember { mutableStateOf(emptyList<TransportLog>()) }
     
-    var stats by remember { mutableStateOf(mapOf<String, Double>()) }
-    var totalXp by remember { mutableIntStateOf(0) }
-    var overallEcoScore by remember { mutableIntStateOf(100) }
-    var co2Saved by remember { mutableDoubleStateOf(0.0) }
-    var co2Produced by remember { mutableDoubleStateOf(0.0) }
+    val greeting = remember {
+        val hour = java.time.LocalTime.now().hour
+        when {
+            hour < 12 -> "Good Morning"
+            hour < 17 -> "Good Afternoon"
+            else -> "Good Evening"
+        }
+    }
 
     LaunchedEffect(Unit) {
         while(true) {
-            val history = manager.getHistory()
-            val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
-            val todayTrips = history.filter { it.date == todayStr }
-            
-            val autoCar = prefs.getFloat("auto_car_km", 0f).toDouble()
-            val autoBike = prefs.getFloat("auto_bike_km", 0f).toDouble()
-            
-            val newStats = mutableMapOf<String, Double>()
-            listOf("Car", "Motorbike", "Bus", "Train", "Bike", "Walk").forEach { type ->
-                newStats[type] = todayTrips.filter { it.type == type }.sumOf { it.distance }
-            }
-            
-            newStats["Car"] = (newStats["Car"] ?: 0.0) + autoCar
-            newStats["Bike"] = (newStats["Bike"] ?: 0.0) + autoBike
-
-            if (manager.hasAllPermissions()) {
-                val todayHealth = manager.getDailyHealthData(LocalDate.now())
-                val liveWalk = manager.getLiveDistanceKm()
-                val totalWalkValue = (newStats["Walk"] ?: 0.0) + todayHealth.dailyDistance + liveWalk
-                
-                // Map the internal "Walk" key to the UI "Walking" key
-                newStats["Walking"] = totalWalkValue
-                
-                totalXp = manager.getTotalXP(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-                overallEcoScore = manager.getOverallEcoScore(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-                co2Produced = manager.getTotalGeneratedCO2(newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-                co2Saved = manager.getTotalSavedCO2(totalWalkValue, newStats["Bike"] ?: 0.0, newStats["Motorbike"] ?: 0.0, newStats["Car"] ?: 0.0, newStats["Bus"] ?: 0.0, newStats["Train"] ?: 0.0)
-            } else {
-                newStats["Walking"] = newStats["Walk"] ?: 0.0
-            }
-            
-            stats = newStats
-            delay(5000)
+            summary = manager.getTodaySummary()
+            todayHistory = manager.getHistory().filter { it.date == LocalDate.now().format(DateTimeFormatter.ISO_DATE) }
+            kotlinx.coroutines.delay(5000L)
         }
     }
 
     Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
-        Text("Overview", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
-        Spacer(modifier = Modifier.height(30.dp))
+        Text(greeting, style = TextStyle(fontSize = 16.sp, color = MaterialTheme.colorScheme.primary))
+        Text("Your Day Today", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        
+        Spacer(modifier = Modifier.height(24.dp))
 
-        var showInstallBanner by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            val status = androidx.health.connect.client.HealthConnectClient.getSdkStatus(context)
-            if (status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED || 
-                status == androidx.health.connect.client.HealthConnectClient.SDK_UNAVAILABLE) {
-                showInstallBanner = true
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { navController.navigate("digital_wellbeing") },
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMM")), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                VitalityRings(
+                    xp = summary.xp,
+                    saved = summary.co2Saved,
+                    produced = 0.0,
+                    size = 200.dp,
+                    strokeWidth = 14.dp,
+                    xpTarget = prefs.getFloat("target_xp", 500f),
+                    savedTarget = prefs.getFloat("target_saved", 5f).toDouble(),
+                    producedTarget = prefs.getFloat("target_produced", 2f).toDouble()
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    ActivityMetric("Steps", summary.steps.toString(), Icons.AutoMirrored.Filled.DirectionsWalk)
+                    ActivityMetric("Total XP", summary.xp.toString(), Icons.Default.Bolt, Color(0xFFFBC02D))
+                    ActivityMetric("CO2 Saved", "${summary.co2Saved.format(2)} kg", Icons.Default.Nature)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Tap for Digital Wellbeing Insights", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
             }
         }
 
-        if (showInstallBanner) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Health Connect Missing", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-                        Text("Install to track steps and history.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+        Spacer(modifier = Modifier.height(30.dp))
+        
+        Text("Encouragement", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(10.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Park, contentDescription = null, tint = Color(0xFF4CAF50))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    if (summary.steps < 5000) "You're doing great! Try to reach 5,000 steps today to save even more CO2."
+                    else "Excellent work! Every extra step helps our planet breathe easier.",
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+        Text("Logged Today", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (todayHistory.isEmpty()) {
+            Text("No trips logged yet today. Start tracking to see your impact!", color = Color.Gray, modifier = Modifier.padding(vertical = 10.dp))
+        } else {
+            todayHistory.forEach { log ->
+                HistoryItem(log)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun HistoryItem(log: TransportLog) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), 
+        shape = RoundedCornerShape(16.dp), 
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val icon = when(log.type) { 
+                    "Car" -> Icons.Default.DirectionsCar
+                    "Motorbike" -> Icons.Default.TwoWheeler
+                    "Bus" -> Icons.Default.DirectionsBus
+                    "Train" -> Icons.Default.Train
+                    "Bike" -> Icons.AutoMirrored.Filled.DirectionsBike
+                    "Walk" -> Icons.AutoMirrored.Filled.DirectionsWalk
+                    else -> Icons.AutoMirrored.Filled.DirectionsRun 
+                }
+                Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) { 
+                    Text(log.type, fontWeight = FontWeight.Bold, fontSize = 16.sp) 
+                    if (log.startTime.isNotEmpty()) {
+                        Text("${log.startTime} - ${log.endTime}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                     }
-                    Button(
-                        onClick = { context.startActivity(manager.getInstallIntent()) },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Install", fontSize = 12.sp)
+                }
+                Column(horizontalAlignment = Alignment.End) { 
+                    Text("${log.distance.format(1)} km", fontWeight = FontWeight.Bold)
+                    Text("${log.xpEarned} XP", fontSize = 12.sp, color = Color(0xFFFBC02D), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DashboardScreen(manager: CarbonManager) {
+    val scrollState = rememberScrollState()
+    var summary by remember { mutableStateOf(StatsSummary()) }
+
+    LaunchedEffect(Unit) {
+        summary = manager.getLifetimeSummary()
+    }
+
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
+        Text("Lifetime Impact", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Text("Your journey since joining EcoVitality", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        
+        Spacer(modifier = Modifier.height(30.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text("Total Carbon Saved", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 14.sp)
+                        Text("${summary.co2Saved.format(1)} kg", fontWeight = FontWeight.Bold, fontSize = 36.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Park, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Equivalent to ${(summary.co2Saved / 20.0).format(1)} tree years of absorption", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), fontSize = 12.sp)
                 }
             }
         }
 
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            VitalityRings(totalXp, overallEcoScore, co2Saved, co2Produced)
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-        
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.height(180.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            userScrollEnabled = false
-        ) {
-            item { LegendItem("Total XP", "$totalXp", Color(0xFFFBC02D), Icons.Default.Star) }
-            item { LegendItem("Eco Score", "$overallEcoScore", MaterialTheme.colorScheme.secondary, Icons.Default.Eco) }
-            item { LegendItem("CO2 Saved", "${co2Saved.format(2)}kg", Color(0xFF4CAF50), Icons.Default.Nature) }
-            item { LegendItem("Produced", "${co2Produced.format(2)}kg", MaterialTheme.colorScheme.error, Icons.Default.Co2) }
-        }
-
         Spacer(modifier = Modifier.height(30.dp))
-        Text("Reference Benchmarks", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(15.dp))
+        Text("Cumulative Metrics", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(modifier = Modifier.fillMaxWidth().height(110.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ImpactCard(Modifier.weight(1f), "Lifetime XP", summary.xp.toString(), Icons.Default.Stars, Color(0xFFFBC02D))
+            ImpactCard(Modifier.weight(1f), "Total Distance", "${summary.distance.format(0)} km", Icons.Default.Route, MaterialTheme.colorScheme.secondary)
+        }
         
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Row(modifier = Modifier.fillMaxWidth().height(110.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ImpactCard(Modifier.weight(1f), "Total Trips", summary.trips.toString(), Icons.Default.History, MaterialTheme.colorScheme.primary)
+            ImpactCard(Modifier.weight(1f), "Overall Rank", if(summary.xp > 10000) "Eco Legend" else if(summary.xp > 5000) "Green Warrior" else "Earth Guardian", Icons.Default.MilitaryTech, Color(0xFFFBC02D))
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
+        Text("Detailed History", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text("Browse your activity day-by-day in the History tab.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        
+        Spacer(modifier = Modifier.height(20.dp))
         BenchmarkSection()
-
-        Spacer(modifier = Modifier.height(30.dp))
-        Text("Travel Breakdown (Today)", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(15.dp))
-        
-        val breakdownItems = listOf(
-            Triple("Car", Icons.Default.DirectionsCar, MaterialTheme.colorScheme.error),
-            Triple("Motorbike", Icons.Default.TwoWheeler, Color(0xFF9C27B0)),
-            Triple("Bus", Icons.Default.DirectionsBus, MaterialTheme.colorScheme.secondary),
-            Triple("Train", Icons.Default.Train, MaterialTheme.colorScheme.primary),
-            Triple("Bike", Icons.AutoMirrored.Filled.DirectionsBike, MaterialTheme.colorScheme.tertiary),
-            Triple("Walking", Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFF4CAF50))
-        )
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier.height(320.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            userScrollEnabled = false
-        ) {
-            items(breakdownItems) { (mode, icon, color) ->
-                val distance = stats[mode] ?: 0.0
-                Card(modifier = Modifier.aspectRatio(0.85f), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Column(modifier = Modifier.padding(8.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Icon(icon, contentDescription = mode, tint = color, modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(mode, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        Text("${distance.format(1)} km", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                    }
-                }
-            }
-        }
         Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun ImpactCard(modifier: Modifier, label: String, value: String, icon: ImageVector, color: Color) {
+    Card(
+        modifier = modifier.fillMaxSize(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.15f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color)
+            Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -387,6 +492,129 @@ fun LegendItem(label: String, value: String, color: Color, icon: ImageVector) {
                 Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                 Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = color)
             }
+        }
+    }
+}
+
+@Composable
+fun DigitalWellbeingScreen(manager: CarbonManager) {
+    val context = LocalContext.current
+    var summary by remember { mutableStateOf(manager.getDigitalWellbeingSummary()) }
+    var hasPermission by remember { mutableStateOf(manager.hasUsageStatsPermission()) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(Unit) {
+        while(true) {
+            hasPermission = manager.hasUsageStatsPermission()
+            if (hasPermission) {
+                summary = manager.getDigitalWellbeingSummary()
+            }
+            delay(5000L)
+        }
+    }
+
+    Column(modifier = Modifier.padding(20.dp).fillMaxSize().verticalScroll(scrollState)) {
+        Text("Digital Wellbeing", style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary))
+        Text("Phone Energy & Usage Insights", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        
+        Spacer(modifier = Modifier.height(30.dp))
+
+        if (!hasPermission) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Permission Required", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Text("We need 'Usage Access' permission to show which apps use the most energy.", textAlign = TextAlign.Center, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Grant Permission")
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFFFBC02D), modifier = Modifier.size(40.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Total Phone Energy", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 14.sp)
+                            Text("${summary.totalEnergyMah.format(1)} mAh", fontWeight = FontWeight.Bold, fontSize = 28.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Total Screen Time: ${summary.totalScreenTimeMillis / 3600000}h ${(summary.totalScreenTimeMillis % 3600000) / 60000}m", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), fontSize = 14.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("App Energy Breakdown", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            summary.appUsages.forEach { app ->
+                AppUsageItem(app)
+            }
+            
+            Spacer(modifier = Modifier.height(30.dp))
+            Text("Impact on Score", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Analytics, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Digital Eco Score: ${summary.digitalEcoScore}/100", fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Excessive phone use decreases your daily sustainability rating and applies an XP penalty of ${summary.digitalXpPenalty} XP.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+@Composable
+fun AppUsageItem(app: AppUsageInfo) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).animateContentSize(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (app.icon != null) {
+                AsyncImage(
+                    model = app.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
+                )
+            } else {
+                Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(4.dp)))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(app.appName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                val hours = app.usageTimeMillis / 3600000
+                val mins = (app.usageTimeMillis % 3600000) / 60000
+                Text(if(hours > 0) "${hours}h ${mins}m" else "${mins}m", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+            }
+            Text("${app.estimatedEnergyMah.format(1)} mAh", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -563,13 +791,19 @@ fun MetricStatusCard(label: String, value: String, icon: ImageVector, bgColor: C
 @Composable
 fun HistoryScreen(manager: CarbonManager) {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var dailyInsight by remember { mutableStateOf<CarbonInsight?>(null) }
-    var refreshTrigger by remember { mutableStateOf(0) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
     var history by remember { mutableStateOf(manager.getHistory()) }
     var selectedLog by remember { mutableStateOf<TransportLog?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     var hasPermissions by remember { mutableStateOf(true) }
+    
+    // Dynamic Targets
+    val xpTarget = prefs.getFloat("target_xp", 500f)
+    val savedTarget = prefs.getFloat("target_saved", 5.0f).toDouble()
+    val producedTarget = prefs.getFloat("target_produced", 2.0f).toDouble()
 
     val days = remember { (0..13).map { LocalDate.now().minusDays(it.toLong()) }.reversed() }
 
@@ -639,15 +873,15 @@ fun HistoryScreen(manager: CarbonManager) {
                         val totalXp = insight.xp + tripXp
                         val totalSaved = insight.totalCarbon + todayHistory.filter { it.type in listOf("Bike", "Walk", "Bus", "Train") }.sumOf { 
                             when(it.type) {
-                                "Bus" -> it.distance * (manager.CAR_FACTOR - manager.BUS_FACTOR)
-                                "Train" -> it.distance * (manager.CAR_FACTOR - manager.TRAIN_FACTOR)
-                                "Bike", "Walk" -> it.distance * manager.CAR_FACTOR
+                                "Bus" -> it.distance * (manager.getCarFactor() - manager.BUS_FACTOR)
+                                "Train" -> it.distance * (manager.getCarFactor() - manager.TRAIN_FACTOR)
+                                "Bike", "Walk" -> it.distance * manager.getCarFactor()
                                 else -> 0.0
                             }
                         }
                         val totalProduced = todayHistory.filter { it.type in listOf("Car", "Motorbike", "Bus", "Train") }.sumOf { it.co2 }
                         
-                        dayStats = Triple(totalXp, 100 /* Simplified score */, Triple(totalSaved, totalProduced, 100))
+                        dayStats = Triple(totalXp, 0, Triple(totalSaved, totalProduced, 0))
                     }
                 }
                 
@@ -663,12 +897,14 @@ fun HistoryScreen(manager: CarbonManager) {
                         }
                         VitalityRings(
                             xp = dayStats.first,
-                            ecoScore = dayStats.third.third,
                             saved = dayStats.third.first,
                             produced = dayStats.third.second,
                             size = 40.dp,
                             strokeWidth = 3.dp,
-                            showCenterIcon = false
+                            showCenterIcon = false,
+                            xpTarget = xpTarget,
+                            savedTarget = savedTarget,
+                            producedTarget = producedTarget
                         )
                         Text("${dayStats.first}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if(date == selectedDate) MaterialTheme.colorScheme.primary else Color.Gray)
                     }
@@ -695,6 +931,15 @@ fun HistoryScreen(manager: CarbonManager) {
                 }
             }
             val totalProducedForDay = todayHistory.filter { it.type in listOf("Car", "Motorbike", "Bus", "Train") }.sumOf { it.co2 }
+            val dailyEcoScore = if (totalXpForDay == 0 && totalProducedForDay == 0.0) 0 
+                               else manager.calculateEcoScore(
+                                   walk = dailyInsight!!.dailyDistance + todayHistory.filter { it.type == "Walk" }.sumOf { it.distance },
+                                   bike = todayHistory.filter { it.type == "Bike" }.sumOf { it.distance },
+                                   motorbike = todayHistory.filter { it.type == "Motorbike" }.sumOf { it.distance },
+                                   car = todayHistory.filter { it.type == "Car" }.sumOf { it.distance },
+                                   bus = todayHistory.filter { it.type == "Bus" }.sumOf { it.distance },
+                                   train = todayHistory.filter { it.type == "Train" }.sumOf { it.distance }
+                               )
 
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -703,18 +948,20 @@ fun HistoryScreen(manager: CarbonManager) {
                     
                     VitalityRings(
                         xp = totalXpForDay,
-                        ecoScore = 100, // Placeholder
                         saved = totalSavedForDay,
                         produced = totalProducedForDay,
                         size = 180.dp,
-                        strokeWidth = 12.dp
+                        strokeWidth = 12.dp,
+                        xpTarget = xpTarget,
+                        savedTarget = savedTarget,
+                        producedTarget = producedTarget
                     )
                     
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         ActivityMetric("Steps", "${dailyInsight!!.dailySteps}", Icons.AutoMirrored.Filled.DirectionsWalk)
-                        ActivityMetric("Total XP", "${totalXpForDay}", Icons.Default.Bolt)
+                        ActivityMetric("Total XP", "${totalXpForDay}", Icons.Default.Bolt, Color(0xFFFBC02D))
                         ActivityMetric("CO2 Saved", "${totalSavedForDay.format(2)} kg", Icons.Default.Nature)
                     }
                 }
@@ -785,27 +1032,10 @@ fun HistoryScreen(manager: CarbonManager) {
         }
         
         Spacer(modifier = Modifier.height(30.dp))
-        Text("Reference Benchmarks", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(15.dp))
+        Text("Reference Benchmarks", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(modifier = Modifier.height(12.dp))
         
         BenchmarkSection()
-        
-        Spacer(modifier = Modifier.height(30.dp))
-        Text("Legend", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        Spacer(modifier = Modifier.height(15.dp))
-        
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.height(180.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            userScrollEnabled = false
-        ) {
-            item { LegendItem("Total XP", "Earned from eco-trips & steps", Color(0xFFFBC02D), Icons.Default.Star) }
-            item { LegendItem("Eco Score", "Weekly sustainability rating", MaterialTheme.colorScheme.secondary, Icons.Default.Eco) }
-            item { LegendItem("CO2 Saved", "Avoided vs driving a car", Color(0xFF4CAF50), Icons.Default.Nature) }
-            item { LegendItem("Produced", "Emissions from motorized trips", MaterialTheme.colorScheme.error, Icons.Default.Co2) }
-        }
         
         Spacer(modifier = Modifier.height(20.dp))
     }
@@ -942,11 +1172,12 @@ fun RewardCard(reward: Reward, currentXp: Int) {
 }
 
 @Composable
-fun ActivityMetric(label: String, value: String, icon: ImageVector) {
+fun ActivityMetric(label: String, value: String, icon: ImageVector, tint: Color = Color(0xFF4CAF50)) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text(label, fontSize = 12.sp, color = Color.Gray)
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
+        Text(label, fontSize = 11.sp, color = Color.Gray)
     }
 }
 
@@ -958,6 +1189,12 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
     var username by remember { mutableStateOf(prefs.getString("currentUsername", "") ?: "") }
     var email by remember { mutableStateOf(prefs.getString("currentUser", "") ?: "") }
     var isEditing by remember { mutableStateOf(false) }
+    
+    // Dynamic Goals State
+    var showGoalsMenu by remember { mutableStateOf(false) }
+    var xpTarget by remember { mutableFloatStateOf(prefs.getFloat("target_xp", 500f)) }
+    var savedTarget by remember { mutableFloatStateOf(prefs.getFloat("target_saved", 5.0f)) }
+    var producedLimit by remember { mutableFloatStateOf(prefs.getFloat("target_produced", 2.0f)) }
 
     val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -999,7 +1236,35 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
             Text(username, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(email, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), fontSize = 14.sp)
         }
+        
         Spacer(modifier = Modifier.height(30.dp))
+        
+        // Goals Expansion Menu
+        Card(
+            modifier = Modifier.fillMaxWidth(), 
+            shape = RoundedCornerShape(20.dp), 
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showGoalsMenu = !showGoalsMenu }) {
+                    Icon(Icons.Default.GpsFixed, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Daily Goal Targets", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Icon(if(showGoalsMenu) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+                }
+                
+                AnimatedVisibility(visible = showGoalsMenu) {
+                    Column(modifier = Modifier.padding(top = 16.dp)) {
+                        GoalSlider("Daily XP Target", xpTarget, 100f, 2000f, "XP") { xpTarget = it; prefs.edit().putFloat("target_xp", it).apply() }
+                        GoalSlider("Daily CO2 Saved (kg)", savedTarget, 1f, 20f, "kg") { savedTarget = it; prefs.edit().putFloat("target_saved", it).apply() }
+                        GoalSlider("Daily Produced Limit (kg)", producedLimit, 0.5f, 10f, "kg") { producedLimit = it; prefs.edit().putFloat("target_produced", it).apply() }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("App Settings", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -1061,6 +1326,22 @@ fun ProfileScreen(manager: CarbonManager, profileImageUri: Uri?, onProfileImageC
             Spacer(modifier = Modifier.width(8.dp))
             Text("Logout", fontSize = 16.sp, fontWeight = FontWeight.Bold) 
         }
+    }
+}
+
+@Composable
+fun GoalSlider(label: String, value: Float, min: Float, max: Float, unit: String, onValueChange: (Float) -> Unit) {
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${value.toInt()} $unit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = min..max,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

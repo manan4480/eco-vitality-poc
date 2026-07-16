@@ -39,6 +39,11 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                                 context.startService(serviceIntent)
                             }
                         }
+                    } else if (transitionType == "EXIT") {
+                        if (activityType == "VEHICLE" || activityType == "BICYCLE") {
+                            // Optionally send a command to the service to stop tracking but save current distance
+                            context.stopService(Intent(context, TrackingService::class.java))
+                        }
                     }
                 }
             }

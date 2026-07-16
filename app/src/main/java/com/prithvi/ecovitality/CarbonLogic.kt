@@ -1,15 +1,19 @@
 package com.prithvi.ecovitality
 
 import android.app.PendingIntent
+import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.location.Location
 import android.net.Uri
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -25,9 +29,25 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+
+data class AppUsageInfo(
+    val packageName: String,
+    val appName: String,
+    val usageTimeMillis: Long,
+    val estimatedEnergyMah: Double,
+    val icon: android.graphics.drawable.Drawable? = null
+)
+
+data class DigitalWellbeingSummary(
+    val totalScreenTimeMillis: Long,
+    val totalEnergyMah: Double,
+    val appUsages: List<AppUsageInfo>,
+    val digitalXpPenalty: Int
+)
 
 data class TransportLog(
     val date: String = "",
@@ -42,6 +62,14 @@ data class TransportLog(
     val ecoScoreImpact: Int = 0
 )
 
+data class StatsSummary(
+    val co2Saved: Double = 0.0,
+    val distance: Double = 0.0,
+    val trips: Int = 0,
+    val xp: Int = 0,
+    val steps: Int = 0
+)
+
 data class CarbonInsight(
     val dailyDistance: Double,
     val dailySteps: Int,
@@ -53,11 +81,22 @@ data class CarbonInsight(
 
 class CarbonManager(val context: Context) : SensorEventListener {
 
-    val CAR_FACTOR = 0.16691
-    val BUS_FACTOR = 0.10846
-    val TRAIN_FACTOR = 0.03549
-    val MOTORBIKE_FACTOR = 0.11337
-    val BIKE_FACTOR = 0.0 // Bike and Walk are zero emission
+    private val prefs = context.getSharedPreferences("EcoVitalityPrefs", Context.MODE_PRIVATE)
+
+    fun getCarFactor(): Double {
+        return when(prefs.getString("car_type", "Petrol")) {
+            "Petrol" -> 0.170
+            "Diesel" -> 0.171
+            "Hybrid" -> 0.110
+            "Electric" -> 0.045
+            else -> 0.170
+        }
+    }
+
+    val BUS_FACTOR = 0.108
+    val TRAIN_FACTOR = 0.035
+    val MOTORBIKE_FACTOR = 0.113
+    val BIKE_FACTOR = 0.0
     val STEP_LENGTH_METERS = 0.75 
 
     private var sensorManager: SensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -238,8 +277,8 @@ class CarbonManager(val context: Context) : SensorEventListener {
             // If distance is missing but steps are present, estimate distance
             val finalDist = if (totalDist == 0.0 && totalSteps > 0) (totalSteps * STEP_LENGTH_METERS) / 1000.0 else totalDist
             
-            val co2Saved = finalDist * CAR_FACTOR // Assuming walking saves car emissions
-            val xp = (finalDist * 15).toInt() + (totalSteps / 100) // 15 XP per km + 1 XP per 100 steps
+            val co2Saved = finalDist * getCarFactor() // Assuming walking saves car emissions
+            val xp = (finalDist * 25).toInt() + (totalSteps / 100) // 25 XP per km + 1 XP per 100 steps
             
             CarbonInsight(finalDist, totalSteps, co2Saved, xp)
         } catch (e: Exception) { 
@@ -248,7 +287,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
         }
     }
 
-    fun calculateCarCarbon(km: Double) = km * CAR_FACTOR
+    fun calculateCarCarbon(km: Double) = km * getCarFactor()
     fun calculateBusCarbon(km: Double) = km * BUS_FACTOR
     fun calculateTrainCarbon(km: Double) = km * TRAIN_FACTOR
     fun calculateMotorBikeCarbon(km: Double) = km * MOTORBIKE_FACTOR
@@ -402,17 +441,19 @@ class CarbonManager(val context: Context) : SensorEventListener {
         saveToHistory(if (to.contains("bus")) "Bus" else "Train", dist)
     }
 
-    fun calculateEcoScore(walk: Double, bike: Double, motorbike: Double, car: Double, bus: Double, train: Double): Int {
+    fun calculateEcoScore(walk: Double, bike: Double, motorbike: Double, car: Double, bus: Double, train: Double, digitalPenalty: Int = 0): Int {
+        if (walk + bike + motorbike + car + bus + train == 0.0) return (100 - digitalPenalty).coerceAtLeast(0)
         var s = 100.0
         s -= (calculateCarCarbon(car) * 5) + (calculateMotorBikeCarbon(motorbike) * 4) + (calculateBusCarbon(bus) * 2) + (calculateTrainCarbon(train) * 1)
         s += (walk * 2) + (bike * 4)
+        s -= digitalPenalty
         return s.toInt().coerceIn(0, 100)
     }
 
     fun calculateXP(walk: Double, bike: Double, trans: Double, motorbike: Double, car: Double) = (walk * 15 + bike * 15 + trans * 5).toInt()
 
     suspend fun getTotalXP(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Int {
-        val historyXp = getHistory().sumOf { 
+        val historyXp = getHistory().sumOf {
             when(it.type) {
                 "Bike", "Walk" -> it.distance * 15
                 "Bus", "Train" -> it.distance * 5
@@ -428,7 +469,7 @@ class CarbonManager(val context: Context) : SensorEventListener {
         val last7 = LocalDate.now().minusDays(7)
         val rh = h.filter { try { LocalDate.parse(it.date).isAfter(last7) } catch (e: Exception) { false } }
         val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance }
-        
+
         val tw = health7 + sw
         val tb = rh.filter { it.type == "Bike" }.sumOf { it.distance } + sb
         val tmb = rh.filter { it.type == "Motorbike" }.sumOf { it.distance } + smb
@@ -444,17 +485,150 @@ class CarbonManager(val context: Context) : SensorEventListener {
 
     suspend fun getTotalSavedCO2(sw: Double, sb: Double, smb: Double, sc: Double, sb2: Double, st: Double): Double {
         val health7 = (0..6).sumOf { getDailyHealthData(LocalDate.now().minusDays(it.toLong())).dailyDistance } * CAR_FACTOR
-        val h = getHistory().sumOf { 
-            when(it.type) { 
+        val h = getHistory().sumOf {
+            when(it.type) {
                 "Bike", "Walk" -> it.distance * CAR_FACTOR
                 "Bus" -> it.distance * (CAR_FACTOR - BUS_FACTOR)
                 "Train" -> it.distance * (CAR_FACTOR - TRAIN_FACTOR)
                 "Motorbike" -> it.distance * (CAR_FACTOR - MOTORBIKE_FACTOR)
-                else -> 0.0 
-            } 
+                else -> 0.0
+            }
         }
         return health7 + h + (sw + sb) * CAR_FACTOR + sb2 * (CAR_FACTOR - BUS_FACTOR) + st * (CAR_FACTOR - TRAIN_FACTOR) + smb * (CAR_FACTOR - MOTORBIKE_FACTOR)
     }
 
     fun getInstallIntent() = Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("market://details?id=com.google.android.apps.healthdata"); putExtra("overlay", true); putExtra("callerId", context.packageName) }
+
+    suspend fun getTodaySummary(): StatsSummary {
+        val today = LocalDate.now()
+        val history = getHistory().filter { it.date == today.format(DateTimeFormatter.ISO_DATE) }
+        val health = getDailyHealthData(today)
+        val digital = getDigitalWellbeingSummary()
+        
+        val totalDist = history.sumOf { it.distance } + health.dailyDistance
+        val totalSaved = history.sumOf { 
+            if (it.type in listOf("Bike", "Walk", "Bus", "Train")) {
+                val factor = when(it.type) {
+                    "Bus" -> getCarFactor() - BUS_FACTOR
+                    "Train" -> getCarFactor() - TRAIN_FACTOR
+                    else -> getCarFactor()
+                }
+                it.distance * factor
+            } else 0.0
+        } + health.totalCarbon
+        
+        val totalXP = (history.sumOf { it.xpEarned } + health.xp - digital.digitalXpPenalty).coerceAtLeast(0)
+        
+        return StatsSummary(
+            co2Saved = totalSaved,
+            distance = totalDist,
+            trips = history.size,
+            xp = totalXP,
+            steps = health.dailySteps
+        )
+    }
+
+    fun hasUsageStatsPermission(): Boolean {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+        } else {
+            appOps.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+        }
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    fun getDigitalWellbeingSummary(): DigitalWellbeingSummary {
+        if (!hasUsageStatsPermission()) {
+            return DigitalWellbeingSummary(0, 0.0, emptyList(), 0)
+        }
+
+        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val endTime = System.currentTimeMillis()
+        val startTime = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+        // Use queryAndAggregateUsageStats to get a clean map of package to usage
+        val statsMap = usageStatsManager.queryAndAggregateUsageStats(startTime, endTime)
+        
+        if (statsMap.isEmpty()) {
+            return DigitalWellbeingSummary(0, 0.0, emptyList(), 0)
+        }
+
+        val appUsages = mutableListOf<AppUsageInfo>()
+        var totalTime: Long = 0
+        val pm = context.packageManager
+
+        statsMap.forEach { (pkgName, usage) ->
+            if (usage.totalTimeInForeground > 60000) { // Only apps used for more than 1 minute
+                val appLabel = try {
+                    val ai = pm.getApplicationInfo(pkgName, 0)
+                    pm.getApplicationLabel(ai).toString()
+                } catch (e: Exception) { pkgName }
+                
+                val icon = try {
+                    pm.getApplicationIcon(pkgName)
+                } catch (e: Exception) { null }
+
+                totalTime += usage.totalTimeInForeground
+                val energy = (usage.totalTimeInForeground / 60000.0) * 3.0
+                
+                // Filter for apps that have a launcher (actual user-facing apps)
+                val isUserApp = pm.getLaunchIntentForPackage(pkgName) != null || pkgName == context.packageName
+                if (isUserApp) {
+                    appUsages.add(AppUsageInfo(pkgName, appLabel, usage.totalTimeInForeground, energy, icon))
+                }
+            }
+        }
+
+        val sortedUsages = appUsages.sortedByDescending { it.usageTimeMillis }.take(15)
+        val totalEnergy = sortedUsages.sumOf { it.estimatedEnergyMah }
+        val hours = totalTime / 3600000.0
+        val penalty = (hours * 10).toInt()
+
+        return DigitalWellbeingSummary(totalTime, totalEnergy, sortedUsages, penalty)
+    }
+
+    suspend fun getLifetimeSummary(): StatsSummary {
+        val history = getHistory()
+        val today = LocalDate.now()
+        
+        var healthDist = 0.0
+        var healthSaved = 0.0
+        var healthXP = 0
+        
+        try {
+            val availability = HealthConnectClient.getSdkStatus(context)
+            if (availability == HealthConnectClient.SDK_AVAILABLE) {
+                // Aggregate last 30 days for lifetime summary
+                for (i in 0..30) {
+                    val date = today.minusDays(i.toLong())
+                    val data = getDailyHealthData(date)
+                    healthDist += data.dailyDistance
+                    healthSaved += data.totalCarbon
+                    healthXP += data.xp
+                }
+            }
+        } catch (e: Exception) {}
+
+        val totalDist = history.sumOf { it.distance } + healthDist
+        val totalSaved = history.sumOf { 
+            if (it.type in listOf("Bike", "Walk", "Bus", "Train")) {
+                val factor = when(it.type) {
+                    "Bus" -> getCarFactor() - BUS_FACTOR
+                    "Train" -> getCarFactor() - TRAIN_FACTOR
+                    else -> getCarFactor()
+                }
+                it.distance * factor
+            } else 0.0
+        } + healthSaved
+        
+        val totalXP = history.sumOf { it.xpEarned } + healthXP
+        
+        return StatsSummary(
+            co2Saved = totalSaved,
+            distance = totalDist,
+            trips = history.size,
+            xp = totalXP
+        )
+    }
 }
